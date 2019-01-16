@@ -23,6 +23,7 @@ static const double kLogoBackgroundWidth = 300.0;
 
 typedef struct {
     cairo_t *ctx;
+    cairo_surface_t *surface;
 
     RsvgHandle *logo_svg_handle;
 
@@ -30,7 +31,15 @@ typedef struct {
     double cursor_fade_direction;
 } saver_state_t;
 
-int poll_events(Display *display, Window window)
+void window_changed_size(saver_state_t *state, XConfigureEvent *event)
+{
+    __width = event->width;
+    __height = event->height;
+
+    cairo_xlib_surface_set_size(state->surface, __width, __height);
+}
+
+int poll_events(saver_state_t *state)
 {
     const bool block_for_next_event = false;
     char keybuf[8];
@@ -38,15 +47,18 @@ int poll_events(Display *display, Window window)
     XEvent e;
 
     for (;;) {
-        if (block_for_next_event || XPending(display)) {
+        if (block_for_next_event || XPending(__display)) {
             // XNextEvent blocks the caller until an event arrives
-            XNextEvent(display, &e);
+            XNextEvent(__display, &e);
         } else {
             return 0;
         }
 
         // TODO: listen for window resize events and resize cairo surface
         switch (e.type) {
+            case ConfigureNotify:
+                window_changed_size(state, (XConfigureEvent *)&e);
+                return 0;
             case ButtonPress:
                 return -e.xbutton.button;
             case KeyPress:
@@ -56,6 +68,8 @@ int poll_events(Display *display, Window window)
                 fprintf(stderr, "Dropping unhandled XEevent.type = %d.\n", e.type);
         }
     }
+
+    return 0;
 }
 
 /*
@@ -69,6 +83,7 @@ void draw_logo(saver_state_t *state)
         state->logo_svg_handle = rsvg_handle_new_from_file("logo.svg", &error);
         if (error != NULL) {
             fprintf(stderr, "Error loading logo SVG\n");
+            return;
         }
     }
 
@@ -130,7 +145,7 @@ void update(saver_state_t *state)
     }
 
 
-    poll_events(__display, __window);
+    poll_events(state);
 }
 
 void draw(saver_state_t *state)
@@ -150,6 +165,7 @@ int runloop(cairo_surface_t *surface)
 
     saver_state_t state = { 0 };
     state.ctx = cr;
+    state.surface = surface;
     state.cursor_opacity = 1.0;
     state.cursor_fade_direction = -1.0;
 
