@@ -6,6 +6,7 @@
 
 #include <cairo/cairo.h>
 #include <cairo-xlib.h>
+#include <librsvg/rsvg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,8 @@ static const double kLogoBackgroundWidth = 300.0;
 
 typedef struct {
     cairo_t *ctx;
+
+    RsvgHandle *logo_svg_handle;
 
     double cursor_opacity;
     double cursor_fade_direction;
@@ -61,10 +64,38 @@ int poll_events(Display *display, Window window)
 
 void draw_logo(saver_state_t *state)
 {
+    if (state->logo_svg_handle == NULL) {
+        GError *error = NULL;
+        state->logo_svg_handle = rsvg_handle_new_from_file("logo.svg", &error);
+        if (error != NULL) {
+            fprintf(stderr, "Error loading logo SVG\n");
+        }
+    }
+
     cairo_t *cr = state->ctx;
+
+    cairo_save(cr);
     cairo_set_source_rgb(cr, (208.0 / 255.0), (69.0 / 255.0), (255.0 / 255.0));
     cairo_rectangle(cr, 0, 0, kLogoBackgroundWidth, __height);
     cairo_fill(cr);
+
+    cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+    
+    // Scale and draw logo
+    RsvgDimensionData dimensions;
+    rsvg_handle_get_dimensions(state->logo_svg_handle, &dimensions);
+
+    const double padding = 10.0;
+    double scale_factor = ((kLogoBackgroundWidth - (padding * 2.0)) / dimensions.width);
+    cairo_scale(cr, scale_factor, scale_factor);
+
+    double scaled_height = (dimensions.height * scale_factor);
+    double y_position = (__height - scaled_height) / 2.0;
+    
+    cairo_translate(cr, padding, y_position);
+    rsvg_handle_render_cairo(state->logo_svg_handle, cr);
+
+    cairo_restore(cr);
 }
 
 void draw_password_field(saver_state_t *state)
