@@ -108,6 +108,11 @@ int main(int argc, char **argv)
         nanosleep(&sleep_time, NULL);
     }
 
+    // Cleanup
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    XCloseDisplay(display);
+
     return 0;
 }
 
