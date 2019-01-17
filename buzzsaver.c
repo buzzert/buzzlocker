@@ -21,7 +21,7 @@ static Window __window = { 0 };
 static Display *__display = NULL;
 
 static const size_t kMaxPasswordLength = 128;
-static const double kLogoBackgroundWidth = 300.0;
+static const double kLogoBackgroundWidth = 500.0;
 
 typedef struct {
     cairo_t                *ctx;
@@ -129,7 +129,7 @@ void draw_logo(saver_state_t *state)
     RsvgDimensionData dimensions;
     rsvg_handle_get_dimensions(state->logo_svg_handle, &dimensions);
 
-    const double padding = 10.0;
+    const double padding = 100.0;
     double scale_factor = ((kLogoBackgroundWidth - (padding * 2.0)) / dimensions.width);
     double scaled_height = (dimensions.height * scale_factor);
     double y_position = (__height - scaled_height) / 2.0;
