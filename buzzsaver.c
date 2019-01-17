@@ -7,6 +7,7 @@
 #include <cairo/cairo.h>
 #include <cairo-xlib.h>
 #include <librsvg/rsvg.h>
+#include <pango/pangocairo.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,16 +20,24 @@ int __width, __height;
 static Window __window = { 0 };
 static Display *__display = NULL;
 
+static const size_t kMaxPasswordLength = 128;
 static const double kLogoBackgroundWidth = 300.0;
 
 typedef struct {
-    cairo_t *ctx;
-    cairo_surface_t *surface;
+    cairo_t                *ctx;
+    cairo_surface_t        *surface;
 
-    RsvgHandle *logo_svg_handle;
+    PangoLayout            *pango_layout;
+    PangoFontDescription   *status_font;
 
-    double cursor_opacity;
-    double cursor_fade_direction;
+    RsvgHandle             *logo_svg_handle;
+    RsvgHandle             *asterisk_svg_handle;
+
+    double                  cursor_opacity;
+    double                  cursor_fade_direction;
+
+    char                   *password_buffer;
+    size_t                  password_buffer_len;
 } saver_state_t;
 
 void window_changed_size(saver_state_t *state, XConfigureEvent *event)
@@ -39,11 +48,31 @@ void window_changed_size(saver_state_t *state, XConfigureEvent *event)
     cairo_xlib_surface_set_size(state->surface, __width, __height);
 }
 
+void handle_key_event(saver_state_t *state, XKeyEvent *event)
+{
+    KeySym key;
+    char keybuf[8];
+    XLookupString(event, keybuf, sizeof(keybuf), &key, NULL);
+    printf("str: %d\n", key);
+
+    char *password_buf = state->password_buffer;
+    size_t length = strlen(password_buf);
+    if (XK_BackSpace == key) {
+        // delete char
+        if (length > 0) {
+            password_buf[length - 1] = '\0';
+        }
+    } else if (strlen(keybuf) > 0) {
+        size_t add_len = strlen(keybuf);
+        if ( (length + add_len) < state->password_buffer_len - 1 ) {
+            strncpy(password_buf + length, keybuf, add_len);
+        }
+    }
+}
+
 int poll_events(saver_state_t *state)
 {
     const bool block_for_next_event = false;
-    char keybuf[8];
-    KeySym key;
     XEvent e;
 
     for (;;) {
@@ -58,12 +87,12 @@ int poll_events(saver_state_t *state)
         switch (e.type) {
             case ConfigureNotify:
                 window_changed_size(state, (XConfigureEvent *)&e);
-                return 0;
+                return 1;
             case ButtonPress:
                 return -e.xbutton.button;
             case KeyPress:
-                XLookupString(&e.xkey, keybuf, sizeof(keybuf), &key, NULL);
-                return key;
+                handle_key_event(state, (XKeyEvent *)&e);
+                return 1;
             default:
                 fprintf(stderr, "Dropping unhandled XEevent.type = %d.\n", e.type);
         }
@@ -102,12 +131,10 @@ void draw_logo(saver_state_t *state)
 
     const double padding = 10.0;
     double scale_factor = ((kLogoBackgroundWidth - (padding * 2.0)) / dimensions.width);
-    cairo_scale(cr, scale_factor, scale_factor);
-
     double scaled_height = (dimensions.height * scale_factor);
     double y_position = (__height - scaled_height) / 2.0;
-    
     cairo_translate(cr, padding, y_position);
+    cairo_scale(cr, scale_factor, scale_factor);
     rsvg_handle_render_cairo(state->logo_svg_handle, cr);
 
     cairo_restore(cr);
@@ -115,13 +142,60 @@ void draw_logo(saver_state_t *state)
 
 void draw_password_field(saver_state_t *state)
 {
-    cairo_t *cr = state->ctx;
-    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, state->cursor_opacity);
-
-    const double cursor_height = 50.0;
+    const double cursor_height = 40.0;
     const double cursor_width  = 30.0;
-    cairo_rectangle(cr, kLogoBackgroundWidth + 50.0, (__height - cursor_height) / 2.0, cursor_width, cursor_height);
+    const double field_x = kLogoBackgroundWidth + 50.0;
+    const double field_y = (__height - cursor_height) / 2.0;
+    const double field_padding = 10.0;
+    
+    cairo_t *cr = state->ctx;
 
+    // Draw status text
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+    pango_layout_set_font_description(state->pango_layout, state->status_font);
+    pango_layout_set_text(state->pango_layout, "Password: ", -1);
+
+    int t_width, t_height;
+    pango_layout_get_size(state->pango_layout, &t_width, &t_height);
+    double line_height = t_height / PANGO_SCALE;
+
+    cairo_move_to(cr, field_x, field_y - line_height - field_padding);
+    pango_cairo_show_layout(cr, state->pango_layout);
+
+    // Draw password asterisks
+    if (state->asterisk_svg_handle == NULL) {
+        GError *error = NULL;
+        state->asterisk_svg_handle = rsvg_handle_new_from_file("asterisk.svg", &error);
+        if (error != NULL) {
+            fprintf(stderr, "Error loading asterisk SVG\n");
+            return;
+        }
+    }
+
+    const double cursor_padding_x = 10.0;
+    double cursor_offset_x = 0.0;
+
+    RsvgDimensionData dimensions;
+    rsvg_handle_get_dimensions(state->asterisk_svg_handle, &dimensions);
+    
+    double asterisk_height = cursor_height - 20.0;
+    double scale_factor = (asterisk_height / dimensions.height);
+    double scaled_width = (dimensions.width * scale_factor);
+
+    for (unsigned i = 0; i < strlen(state->password_buffer); i++) {
+        cairo_save(cr);
+        cairo_translate(cr, field_x + cursor_offset_x, field_y + ((cursor_height - asterisk_height) / 2.0));
+        cairo_scale(cr, scale_factor, scale_factor);
+        rsvg_handle_render_cairo(state->asterisk_svg_handle, cr);
+        cairo_restore(cr);
+
+        cursor_offset_x += scaled_width + cursor_padding_x;
+    }
+
+    
+    // Draw cursor
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, state->cursor_opacity);
+    cairo_rectangle(cr, field_x + cursor_offset_x, field_y, cursor_width, cursor_height);
     cairo_fill(cr);
 }
 
@@ -163,11 +237,19 @@ int runloop(cairo_surface_t *surface)
 {
     cairo_t *cr = cairo_create(surface);
 
+    // Initialize pango context
+    PangoLayout *pango_layout = pango_cairo_create_layout(cr);
+    PangoFontDescription *status_font = pango_font_description_from_string("Input Mono 22");
+
     saver_state_t state = { 0 };
     state.ctx = cr;
     state.surface = surface;
     state.cursor_opacity = 1.0;
     state.cursor_fade_direction = -1.0;
+    state.pango_layout = pango_layout;
+    state.status_font = status_font;
+    state.password_buffer = calloc(1, kMaxPasswordLength);
+    state.password_buffer_len = kMaxPasswordLength;
 
     // Main run loop
     struct timespec sleep_time = { 0, 5000000 };
