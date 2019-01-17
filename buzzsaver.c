@@ -53,7 +53,6 @@ void handle_key_event(saver_state_t *state, XKeyEvent *event)
     KeySym key;
     char keybuf[8];
     XLookupString(event, keybuf, sizeof(keybuf), &key, NULL);
-    printf("str: %d\n", key);
 
     char *password_buf = state->password_buffer;
     size_t length = strlen(password_buf);
