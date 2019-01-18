@@ -2,7 +2,8 @@ project('buzzlocker', 'c')
 
 sources = [
   'src/main.c',
-  'src/render.c'
+  'src/render.c',
+  'src/x11_support.c',
 ]
 
 dependencies = [
