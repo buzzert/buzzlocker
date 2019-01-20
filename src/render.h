@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "auth.h"
+
 #include <cairo/cairo.h>
 #include <cairo-xlib.h>
 #include <librsvg/rsvg.h>
@@ -25,12 +27,17 @@ typedef struct {
     int                     canvas_width;
     int                     canvas_height;
 
+    bool                    input_allowed;
     bool                    cursor_animating;
     double                  cursor_opacity;
     double                  cursor_fade_direction;
 
+    bool                    is_authenticated;
+    const char             *password_prompt;
     char                   *password_buffer;
     size_t                  password_buffer_len;
+
+    struct auth_handle_t   *auth_handle;
 } saver_state_t;
 
 // The purple sidebar

@@ -2,7 +2,10 @@ project('buzzlocker', 'c')
 
 gnome = import('gnome') # for gresources
 
+cc = meson.get_compiler('c')
+
 sources = [
+  'src/auth.c',
   'src/main.c',
   'src/render.c',
   'src/x11_support.c',
@@ -14,6 +17,8 @@ dependencies = [
   dependency('librsvg-2.0'),
   dependency('pangocairo'),
   dependency('gio-2.0'),
+  cc.find_library('pam', required: true),
+  cc.find_library('pthread', required: true),
 ]
 
 # Resources
@@ -27,6 +32,5 @@ resources = gnome.compile_resources(
 executable('buzzlocker',
   sources: sources + resources,
   dependencies: dependencies,
-  c_std: 'c11',
   install: true
 )

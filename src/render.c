@@ -82,9 +82,10 @@ void draw_password_field(saver_state_t *state)
     cairo_t *cr = state->ctx;
 
     // Draw status text
+    const char *prompt = (state->password_prompt ?: "???");
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
     pango_layout_set_font_description(state->pango_layout, state->status_font);
-    pango_layout_set_text(state->pango_layout, "Password: ", -1);
+    pango_layout_set_text(state->pango_layout, prompt, -1);
 
     int t_width, t_height;
     pango_layout_get_size(state->pango_layout, &t_width, &t_height);
