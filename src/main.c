@@ -43,6 +43,8 @@ static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
 
 static void handle_xsl_key_input(saver_state_t *state, const char c)
 {
+    if (!state->input_allowed) return;
+
     char *password_buf = state->password_buffer;
     size_t pw_len = strlen(password_buf);
     switch (c) {
