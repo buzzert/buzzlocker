@@ -42,7 +42,6 @@ void draw_logo(saver_state_t *state)
         g_bytes_unref(bytes);
         if (error != NULL) {
             fprintf(stderr, "Error loading logo SVG\n");
-
             return;
         }
     }
@@ -132,7 +131,13 @@ void draw_password_field(saver_state_t *state)
     
     // Draw cursor
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, state->cursor_opacity);
-    cairo_rectangle(cr, field_x + cursor_offset_x, field_y, cursor_width, cursor_height);
+    if (state->cursor_animating) {
+        cairo_rectangle(cr, field_x + cursor_offset_x, field_y, cursor_width, cursor_height);
+    } else {
+        // Fill asterisks
+        cairo_rectangle(cr, field_x, field_y, cursor_offset_x, cursor_height);
+    }
     cairo_fill(cr);
+
 }
 

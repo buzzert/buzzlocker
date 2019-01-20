@@ -10,6 +10,7 @@
 #include <cairo-xlib.h>
 #include <librsvg/rsvg.h>
 #include <pango/pangocairo.h>
+#include <stdbool.h>
 
 typedef struct {
     cairo_t                *ctx;
@@ -24,6 +25,7 @@ typedef struct {
     int                     canvas_width;
     int                     canvas_height;
 
+    bool                    cursor_animating;
     double                  cursor_opacity;
     double                  cursor_fade_direction;
 

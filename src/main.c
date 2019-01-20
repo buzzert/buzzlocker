@@ -15,7 +15,13 @@
 
 static const size_t kMaxPasswordLength = 128;
 
-void window_changed_size(saver_state_t *state, XConfigureEvent *event)
+static void accept_password(saver_state_t *state);
+
+/*
+ * Event handling
+ */
+
+static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
 {
     state->canvas_width = event->width;
     state->canvas_height = event->height;
@@ -23,7 +29,7 @@ void window_changed_size(saver_state_t *state, XConfigureEvent *event)
     cairo_xlib_surface_set_size(state->surface, event->width, event->height);
 }
 
-void handle_key_event(saver_state_t *state, XKeyEvent *event)
+static void handle_key_event(saver_state_t *state, XKeyEvent *event)
 {
     KeySym key;
     char keybuf[8];
@@ -36,6 +42,8 @@ void handle_key_event(saver_state_t *state, XKeyEvent *event)
         if (length > 0) {
             password_buf[length - 1] = '\0';
         }
+    } else if (XK_Return == key) {
+        accept_password(state);
     } else if (strlen(keybuf) > 0) {
         size_t add_len = strlen(keybuf);
         if ( (length + add_len) < state->password_buffer_len - 1 ) {
@@ -44,7 +52,7 @@ void handle_key_event(saver_state_t *state, XKeyEvent *event)
     }
 }
 
-int poll_events(saver_state_t *state)
+static int poll_events(saver_state_t *state)
 {
     XEvent e;
     const bool block_for_next_event = false;
@@ -77,29 +85,41 @@ int poll_events(saver_state_t *state)
 }
 
 /*
+ * Actions
+ */
+
+static void accept_password(saver_state_t *state)
+{
+    state->cursor_animating = false;
+}
+
+/*
  * Main drawing/update routines 
  */
 
-void update(saver_state_t *state)
+static void update(saver_state_t *state)
 {
-    const double cursor_fade_speed = 0.007;
-    if (state->cursor_fade_direction > 0) {
-        state->cursor_opacity += cursor_fade_speed;
-        if (state->cursor_opacity > 1.0) {
-            state->cursor_fade_direction *= -1;
+    if (state->cursor_animating) {
+        const double cursor_fade_speed = 0.007;
+        if (state->cursor_fade_direction > 0) {
+            state->cursor_opacity += cursor_fade_speed;
+            if (state->cursor_opacity > 1.0) {
+                state->cursor_fade_direction *= -1;
+            }
+        } else {
+            state->cursor_opacity -= cursor_fade_speed;
+            if (state->cursor_opacity <= 0.0) {
+                state->cursor_fade_direction *= -1;
+            }
         }
     } else {
-        state->cursor_opacity -= cursor_fade_speed;
-        if (state->cursor_opacity <= 0.0) {
-            state->cursor_fade_direction *= -1;
-        }
+        state->cursor_opacity = 1.0;
     }
-
 
     poll_events(state);
 }
 
-void draw(saver_state_t *state)
+static void draw(saver_state_t *state)
 {
     // Draw background
     cairo_t *cr = state->ctx;
@@ -110,7 +130,7 @@ void draw(saver_state_t *state)
     draw_password_field(state);
 }
 
-int runloop(cairo_surface_t *surface)
+static int runloop(cairo_surface_t *surface)
 {
     cairo_t *cr = cairo_create(surface);
 
@@ -127,6 +147,7 @@ int runloop(cairo_surface_t *surface)
     state.status_font = status_font;
     state.password_buffer = calloc(1, kMaxPasswordLength);
     state.password_buffer_len = kMaxPasswordLength;
+    state.cursor_animating = true;
 
     // Main run loop
     struct timespec sleep_time = { 0, 5000000 };

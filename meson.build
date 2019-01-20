@@ -27,5 +27,6 @@ resources = gnome.compile_resources(
 executable('buzzlocker',
   sources: sources + resources,
   dependencies: dependencies,
+  c_std: 'c11',
   install: true
 )
