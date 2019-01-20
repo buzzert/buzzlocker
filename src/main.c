@@ -279,7 +279,7 @@ static int runloop(cairo_surface_t *surface)
     const int frames_per_sec = 60;
     const long sleep_nsec = (1.0 / frames_per_sec) * 1000000000;
     struct timespec sleep_time = { 0, sleep_nsec };
-    for (;;) {
+    while (!state.is_authenticated) {
         update(&state);
 
         cairo_push_group(cr);
@@ -292,11 +292,6 @@ static int runloop(cairo_surface_t *surface)
         cairo_surface_flush(surface);
 
         nanosleep(&sleep_time, NULL);
-
-        if (state.is_authenticated) {
-            // We're done here
-            break;
-        }
     }
 
     // Cleanup
