@@ -39,6 +39,12 @@ static Window get_window_from_environment_or_make_one(Display *display, int widt
     return window;
 }
 
+void x11_get_display_bounds(int *width, int *height)
+{
+    *width = DisplayWidth(__display, DefaultScreen(__display));
+    *height = DisplayHeight(__display, DefaultScreen(__display));
+}
+
 cairo_surface_t* x11_helper_acquire_cairo_surface(int width, int height)
 {
     __display = XOpenDisplay(NULL);

@@ -18,11 +18,15 @@
 static const int kXSecureLockCharFD = 0;
 static const size_t kMaxPasswordLength = 128;
 
+static const int kDefaultWidth = 800;
+static const int kDefaultHeight = 600;
+
 static inline saver_state_t* saver_state(void *c)
 {
     return (saver_state_t *)c;
 }
 
+static void clear_password(saver_state_t *state);
 static void accept_password(saver_state_t *state);
 
 /*
@@ -53,7 +57,7 @@ static void handle_xsl_key_input(saver_state_t *state, const char c)
             // TODO: cursor movement
             break;
         case '\025':  // Ctrl-U.
-            // TODO: clear line
+            clear_password(state);
             break;
         case 0:       // Shouldn't happen.
         case '\033':  // Escape.
@@ -139,6 +143,11 @@ static int poll_events(saver_state_t *state)
  * Actions
  */
 
+static void clear_password(saver_state_t *state)
+{
+    state->password_buffer[0] = '\0';
+}
+
 static void accept_password(saver_state_t *state)
 {
     state->cursor_animating = false;
@@ -189,7 +198,7 @@ void callback_authentication_result(int result, void *context)
         state->is_authenticated = true;
     } else {
         // Try again
-        state->password_buffer[0] = '\0';
+        clear_password(state);
     }
 }
 
@@ -200,7 +209,7 @@ void callback_authentication_result(int result, void *context)
 static void update(saver_state_t *state)
 {
     if (state->cursor_animating) {
-        const double cursor_fade_speed = 0.007;
+        const double cursor_fade_speed = 0.01;
         if (state->cursor_fade_direction > 0) {
             state->cursor_opacity += cursor_fade_speed;
             if (state->cursor_opacity > 1.0) {
@@ -251,8 +260,11 @@ static int runloop(cairo_surface_t *surface)
     state.input_allowed = false;
     state.password_prompt = "";
     state.is_authenticated = false;
-    state.canvas_width = 800;
-    state.canvas_height = 600;
+
+    x11_get_display_bounds(&state.canvas_width, &state.canvas_height);
+
+    // Docs say this must be called whenever the size of the window changes
+    cairo_xlib_surface_set_size(surface, state.canvas_width, state.canvas_height);
 
     auth_callbacks_t callbacks = {
         .info_handler = callback_show_info,
@@ -293,8 +305,8 @@ static int runloop(cairo_surface_t *surface)
 
 int main(int argc, char **argv)
 {
-    int default_width = 800;
-    int default_height = 600;
+    int default_width = kDefaultWidth;
+    int default_height = kDefaultHeight;
 
     cairo_surface_t *surface = x11_helper_acquire_cairo_surface(default_width, default_height);
     if (surface == NULL) {
@@ -306,9 +318,6 @@ int main(int argc, char **argv)
     int flags = fcntl(kXSecureLockCharFD, F_GETFL, 0);
     fcntl(kXSecureLockCharFD, F_SETFL, flags | O_NONBLOCK);
 
-    // Docs say this must be called whenever the size of the window changes
-    cairo_xlib_surface_set_size(surface, default_width, default_height);
-    
     int result = runloop(surface);
 
     x11_helper_destroy_surface(surface);

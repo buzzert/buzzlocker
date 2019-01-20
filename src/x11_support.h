@@ -12,6 +12,8 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+void x11_get_display_bounds(int *width, int *height);
+
 // Sets up a window and returns a cairo_surface to draw onto
 cairo_surface_t* x11_helper_acquire_cairo_surface(int width, int height);
 
