@@ -1,5 +1,7 @@
 project('buzzlocker', 'c')
 
+gnome = import('gnome') # for gresources
+
 sources = [
   'src/main.c',
   'src/render.c',
@@ -10,24 +12,20 @@ dependencies = [
   dependency('x11'),
   dependency('cairo'),
   dependency('librsvg-2.0'),
-  dependency('pangocairo')
+  dependency('pangocairo'),
+  dependency('gio-2.0'),
 ]
 
-executable('buzzlocker',
-  sources: sources,
-  dependencies: dependencies
-)
-
 # Resources
-configure_file(
-  input: 'resources/logo.svg',
-  output: 'logo.svg',
-  copy: true
+resources = gnome.compile_resources(
+  'resources', 
+  'resources/buzzsaver.gresource.xml',
+  source_dir: 'resources',
+  c_name: 'as'
 )
 
-configure_file(
-  input: 'resources/asterisk.svg',
-  output: 'asterisk.svg',
-  copy: true
+executable('buzzlocker',
+  sources: sources + resources,
+  dependencies: dependencies,
+  install: true
 )
-

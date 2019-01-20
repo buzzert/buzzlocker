@@ -5,19 +5,48 @@
  */
 
 #include "render.h"
+#include "resources.h"
+#include <gio/gio.h>
 
 static const double kLogoBackgroundWidth = 500.0;
+
+GBytes* get_data_for_resource(const char *resource_path)
+{
+    GBytes *result = NULL;
+    GError *error = NULL;
+
+    GResource *resource = as_get_resource();
+    result = g_resource_lookup_data(
+        resource,
+        resource_path,
+        G_RESOURCE_LOOKUP_FLAGS_NONE,
+        &error
+    );
+
+    if (error != NULL) {
+        fprintf(stderr, "Error loading resource %s\n", resource_path);
+    }
+
+    return result;
+}
 
 void draw_logo(saver_state_t *state)
 {
     if (state->logo_svg_handle == NULL) {
         GError *error = NULL;
-        state->logo_svg_handle = rsvg_handle_new_from_file("logo.svg", &error);
+        GBytes *bytes = get_data_for_resource("/resources/logo.svg");
+
+        gsize size = 0;
+        gconstpointer data = g_bytes_get_data(bytes, &size);
+        state->logo_svg_handle = rsvg_handle_new_from_data(data, size, &error);
+        g_bytes_unref(bytes);
         if (error != NULL) {
             fprintf(stderr, "Error loading logo SVG\n");
+
             return;
         }
     }
+
 
     cairo_t *cr = state->ctx;
 
@@ -68,7 +97,12 @@ void draw_password_field(saver_state_t *state)
     // Draw password asterisks
     if (state->asterisk_svg_handle == NULL) {
         GError *error = NULL;
-        state->asterisk_svg_handle = rsvg_handle_new_from_file("asterisk.svg", &error);
+        GBytes *bytes = get_data_for_resource("/resources/asterisk.svg");
+
+        gsize size = 0;
+        gconstpointer data = g_bytes_get_data(bytes, &size);
+        state->asterisk_svg_handle = rsvg_handle_new_from_data(data, size, &error);
+        g_bytes_unref(bytes);
         if (error != NULL) {
             fprintf(stderr, "Error loading asterisk SVG\n");
             return;
