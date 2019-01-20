@@ -12,6 +12,33 @@
 static Window __window = { 0 };
 static Display *__display = NULL;
 
+static Window get_window_from_environment_or_make_one(Display *display, int width, int height)
+{
+    Window window;
+
+    const char *env_window = getenv("XSCREENSAVER_WINDOW");
+    if (env_window != NULL && env_window[0] != 0) {
+        char *endptr = NULL;
+        unsigned long long number = strtoull(env_window, &endptr, 0);
+        window = (Window)number;
+    } else {
+        // Presumably this is for debugging
+        Window root_window = DefaultRootWindow(__display);
+        window = XCreateSimpleWindow(
+                display,        // display
+                root_window,    // parent window
+                0, 0,           // x, y
+                width,          // width
+                height,         // height
+                0,              // border_width
+                0,              // border
+                0               // background
+        );
+    }
+
+    return window;
+}
+
 cairo_surface_t* x11_helper_acquire_cairo_surface(int width, int height)
 {
     __display = XOpenDisplay(NULL);
@@ -20,17 +47,8 @@ cairo_surface_t* x11_helper_acquire_cairo_surface(int width, int height)
         return NULL;
     }
 
-    Window root_window = DefaultRootWindow(__display);
-    __window = XCreateSimpleWindow(
-            __display,      // display
-            root_window,    // parent window
-            0, 0,           // x, y
-            width,          // width
-            height,         // height
-            0,              // border_width
-            0,              // border
-            0               // background
-    );
+    // Create (or get) window
+    __window = get_window_from_environment_or_make_one(__display, width, height);
 
     // Enable key events
     XSelectInput(__display, __window, ButtonPressMask | KeyPressMask | StructureNotifyMask);

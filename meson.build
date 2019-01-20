@@ -29,7 +29,7 @@ resources = gnome.compile_resources(
   c_name: 'as'
 )
 
-executable('buzzlocker',
+executable('auth_buzzlocker',
   sources: sources + resources,
   dependencies: dependencies,
   install: true

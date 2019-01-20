@@ -8,12 +8,14 @@
 #include "render.h"
 #include "x11_support.h"
 
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
 
+static const int kXSecureLockCharFD = 0;
 static const size_t kMaxPasswordLength = 128;
 
 static inline saver_state_t* saver_state(void *c)
@@ -33,6 +35,40 @@ static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
     state->canvas_height = event->height;
 
     cairo_xlib_surface_set_size(state->surface, event->width, event->height);
+}
+
+static void handle_xsl_key_input(saver_state_t *state, const char c)
+{
+    char *password_buf = state->password_buffer;
+    size_t pw_len = strlen(password_buf);
+    switch (c) {
+        case '\b':      // Backspace.
+            if (pw_len > 0) {
+                password_buf[pw_len - 1] = '\0';
+            }
+            break;
+        case '\177':  // Delete
+            break;
+        case '\001':  // Ctrl-A.
+            // TODO: cursor movement
+            break;
+        case '\025':  // Ctrl-U.
+            // TODO: clear line
+            break;
+        case 0:       // Shouldn't happen.
+        case '\033':  // Escape.
+            break;
+        case '\r':  // Return.
+        case '\n':  // Return.
+            accept_password(state);
+            break;
+        default:
+            if (pw_len + 1 < state->password_buffer_len) {
+                password_buf[pw_len] = c;
+                password_buf[pw_len + 1] = '\0';
+            }
+            break;
+    }
 }
 
 static void handle_key_event(saver_state_t *state, XKeyEvent *event)
@@ -64,6 +100,13 @@ static int poll_events(saver_state_t *state)
 {
     XEvent e;
     const bool block_for_next_event = false;
+
+    // Via xsecurelock, take this route
+    char buf;
+    ssize_t read_res = read(kXSecureLockCharFD, &buf, 1);
+    if (read_res > 0) {
+        handle_xsl_key_input(state, buf);
+    }
 
     // Temp: this should be handled by x11_support
     Display *display = cairo_xlib_surface_get_display(state->surface);
@@ -208,6 +251,8 @@ static int runloop(cairo_surface_t *surface)
     state.input_allowed = false;
     state.password_prompt = "";
     state.is_authenticated = false;
+    state.canvas_width = 800;
+    state.canvas_height = 600;
 
     auth_callbacks_t callbacks = {
         .info_handler = callback_show_info,
@@ -256,6 +301,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "Error creating cairo surface\n");
         exit(1);
     }
+
+    // Make it so reading from the xsecurelock file descriptor doesn't block
+    int flags = fcntl(kXSecureLockCharFD, F_GETFL, 0);
+    fcntl(kXSecureLockCharFD, F_SETFL, flags | O_NONBLOCK);
 
     // Docs say this must be called whenever the size of the window changes
     cairo_xlib_surface_set_size(surface, default_width, default_height);
