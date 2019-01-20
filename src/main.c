@@ -209,7 +209,7 @@ void callback_authentication_result(int result, void *context)
 static void update(saver_state_t *state)
 {
     if (state->cursor_animating) {
-        const double cursor_fade_speed = 0.01;
+        const double cursor_fade_speed = 0.03;
         if (state->cursor_fade_direction > 0) {
             state->cursor_opacity += cursor_fade_speed;
             if (state->cursor_opacity > 1.0) {
@@ -276,7 +276,9 @@ static int runloop(cairo_surface_t *surface)
     state.auth_handle = auth_begin_authentication(callbacks, &state);
 
     // Main run loop
-    struct timespec sleep_time = { 0, 5000000 };
+    const int frames_per_sec = 60;
+    const long sleep_nsec = (1.0 / frames_per_sec) * 1000000000;
+    struct timespec sleep_time = { 0, sleep_nsec };
     for (;;) {
         update(&state);
 
