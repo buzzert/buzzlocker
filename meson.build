@@ -6,6 +6,7 @@ cc = meson.get_compiler('c')
 
 sources = [
   'src/auth.c',
+  'src/animation.c',
   'src/main.c',
   'src/render.c',
   'src/x11_support.c',

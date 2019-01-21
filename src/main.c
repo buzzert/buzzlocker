@@ -152,8 +152,6 @@ static void clear_password(saver_state_t *state)
 
 static void accept_password(saver_state_t *state)
 {
-    state->cursor_animating = false;
-
     size_t pw_length = strlen(state->password_buffer);
     char *password_buf = malloc(pw_length);
     strncpy(password_buf, state->password_buffer, pw_length + 1);
@@ -164,7 +162,28 @@ static void accept_password(saver_state_t *state)
     auth_attempt_authentication(state->auth_handle, response);
 
     // Block input until we hear back from the auth thread
+    state->is_processing = true;
     state->input_allowed = false;
+}
+
+static void ending_animation_completed(struct animation_t *animation, void *context)
+{
+    saver_state_t *state = saver_state(context);
+    state->is_authenticated = true;
+}
+
+static void authentication_accepted(saver_state_t *state)
+{
+    animation_t out_animation = {
+        .completed = false,
+        .completion_func = ending_animation_completed,
+        .completion_func_context = state,
+        .anim.logo_anim = {
+            .type = ALogoAnimation,
+            .direction = true
+        }
+    };
+    schedule_animation(state, out_animation);
 }
 
 /*
@@ -189,15 +208,15 @@ void callback_prompt_user(const char *prompt, void *context)
 
     saver_state_t *state = saver_state(context);
     state->password_prompt = new_prompt;
-    state->cursor_animating = true;
     state->input_allowed = true;
+    state->is_processing = false;
 }
 
 void callback_authentication_result(int result, void *context)
 {
     saver_state_t *state = saver_state(context);
     if (result == 0) {
-        state->is_authenticated = true;
+        authentication_accepted(state);
     } else {
         // Try again
         clear_password(state);
@@ -210,23 +229,7 @@ void callback_authentication_result(int result, void *context)
 
 static void update(saver_state_t *state)
 {
-    if (state->cursor_animating) {
-        const double cursor_fade_speed = 0.03;
-        if (state->cursor_fade_direction > 0) {
-            state->cursor_opacity += cursor_fade_speed;
-            if (state->cursor_opacity > 1.0) {
-                state->cursor_fade_direction *= -1;
-            }
-        } else {
-            state->cursor_opacity -= cursor_fade_speed;
-            if (state->cursor_opacity <= 0.0) {
-                state->cursor_fade_direction *= -1;
-            }
-        }
-    } else {
-        state->cursor_opacity = 1.0;
-    }
-
+    update_animations(state);
     poll_events(state);
 }
 
@@ -253,15 +256,36 @@ static int runloop(cairo_surface_t *surface)
     state.ctx = cr;
     state.surface = surface;
     state.cursor_opacity = 1.0;
-    state.cursor_fade_direction = -1.0;
     state.pango_layout = pango_layout;
     state.status_font = status_font;
     state.password_buffer = calloc(1, kMaxPasswordLength);
     state.password_buffer_len = kMaxPasswordLength;
-    state.cursor_animating = false;
     state.input_allowed = false;
     state.password_prompt = "";
     state.is_authenticated = false;
+    state.is_processing = false;
+
+    // Add initial animations
+    // Cursor animation -- repeats indefinitely
+    animation_t cursor_animation = {
+        .completed = false,
+        .anim.cursor_anim = {
+            .type = ACursorAnimation,
+            .cursor_fade_direction = -1.0,
+            .cursor_animating = true
+        }
+    };
+    schedule_animation(&state, cursor_animation);
+
+    // Logo incoming animation
+    animation_t logo_animation = {
+        .completed = false,
+        .anim.logo_anim = {
+            .type = ALogoAnimation,
+            .direction = false
+        }
+    };
+    schedule_animation(&state, logo_animation);
 
     x11_get_display_bounds(&state.canvas_width, &state.canvas_height);
 

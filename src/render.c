@@ -6,6 +6,8 @@
 
 #include "render.h"
 #include "resources.h"
+
+#include <assert.h>
 #include <gio/gio.h>
 
 static const double kLogoBackgroundWidth = 500.0;
@@ -30,6 +32,103 @@ GBytes* get_data_for_resource(const char *resource_path)
     return result;
 }
 
+static void update_single_animation(saver_state_t *state, animation_t *anim)
+{
+    // Cursor animation
+    if (anim->anim.type == ACursorAnimation) {
+        CursorAnimation *ca = &anim->anim.cursor_anim;
+
+        if (ca->cursor_animating) {
+            const double cursor_fade_speed = 0.01;
+            if (ca->cursor_fade_direction > 0) {
+                state->cursor_opacity += cursor_fade_speed;
+                if (state->cursor_opacity > 1.0) {
+                    ca->cursor_fade_direction *= -1;
+                }
+            } else {
+                state->cursor_opacity -= cursor_fade_speed;
+                if (state->cursor_opacity <= 0.0) {
+                    ca->cursor_fade_direction *= -1;
+                }
+            }
+        } else {
+            state->cursor_opacity = 1.0;
+        }
+    }
+
+    // Logo animation
+    else if (anim->anim.type == ALogoAnimation) {
+        const double logo_duration = 0.6;
+
+        anim_time_interval_t now = anim_now();
+        double progress = (now - anim->start_time) / logo_duration;
+
+        state->logo_fill_progress = anim_qubic_ease_out(progress);
+        if (anim->anim.logo_anim.direction) {
+            state->logo_fill_progress = 1.0 - anim_qubic_ease_out(progress);
+        }
+
+        bool completed = (state->logo_fill_progress >= 1.0);
+        if (anim->anim.logo_anim.direction) {
+            completed = (state->logo_fill_progress <= 0.0);
+        }
+
+        anim->completed = completed;
+    }
+}
+
+static unsigned next_anim_index(saver_state_t *state, unsigned cur_idx)
+{
+    unsigned idx = cur_idx + 1;
+    for (; idx < kMaxAnimations; idx++) {
+        animation_t anim = state->animations[idx];
+        if (anim.anim.type != _EmptyAnimationType) break;
+    }
+
+    return idx;
+}
+
+void schedule_animation(saver_state_t *state, animation_t anim)
+{
+    anim.start_time = anim_now();
+
+    // Find next empty element
+    for (unsigned idx = 0; idx < kMaxAnimations; idx++) {
+        animation_t check_anim = state->animations[idx];
+        if (check_anim.anim.type == _EmptyAnimationType) {
+            state->animations[idx] = anim;
+            state->num_animations++;
+            break;
+        }
+    }
+}
+
+void update_animations(saver_state_t *state)
+{
+    unsigned idx = 0;
+    unsigned processed_animations = 0;
+    unsigned completed_animations = 0;
+    while (processed_animations < state->num_animations) {
+        animation_t *anim = &state->animations[idx];
+
+        update_single_animation(state, anim);
+        if (anim->completed) {
+            state->animations[idx].anim.type = _EmptyAnimationType;
+            if (anim->completion_func != NULL) {
+                anim->completion_func((struct animation_t *)anim, anim->completion_func_context);
+            }
+
+            completed_animations++;
+        }
+
+        processed_animations++;
+        idx = next_anim_index(state, idx);
+        if (idx == kMaxAnimations) break;
+    }
+
+    state->num_animations -= completed_animations;
+}
+
 void draw_logo(saver_state_t *state)
 {
     if (state->logo_svg_handle == NULL) {
@@ -51,7 +150,8 @@ void draw_logo(saver_state_t *state)
 
     cairo_save(cr);
     cairo_set_source_rgb(cr, (208.0 / 255.0), (69.0 / 255.0), (255.0 / 255.0));
-    cairo_rectangle(cr, 0, 0, kLogoBackgroundWidth, state->canvas_height);
+    double fill_height = (state->canvas_height * state->logo_fill_progress);
+    cairo_rectangle(cr, 0, 0, kLogoBackgroundWidth, fill_height);
     cairo_fill(cr);
 
     cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
@@ -132,7 +232,7 @@ void draw_password_field(saver_state_t *state)
     
     // Draw cursor
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, state->cursor_opacity);
-    if (state->cursor_animating) {
+    if (!state->is_processing) {
         cairo_rectangle(cr, field_x + cursor_offset_x, field_y, cursor_width, cursor_height);
     } else {
         // Fill asterisks
