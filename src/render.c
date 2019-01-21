@@ -38,7 +38,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
     if (anim->anim.type == ACursorAnimation) {
         CursorAnimation *ca = &anim->anim.cursor_anim;
 
-        if (ca->cursor_animating) {
+        if (ca->cursor_animating && !state->is_processing) {
             const double cursor_fade_speed = 0.05;
             if (ca->cursor_fade_direction > 0) {
                 state->cursor_opacity += cursor_fade_speed;
@@ -62,15 +62,19 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
 
         anim_time_interval_t now = anim_now();
         double progress = (now - anim->start_time) / logo_duration;
+        progress = anim_qubic_ease_out(progress);
 
-        state->logo_fill_progress = anim_qubic_ease_out(progress);
+        // Check for reverse direction
         if (anim->anim.logo_anim.direction) {
-            state->logo_fill_progress = 1.0 - anim_qubic_ease_out(progress);
+            progress = 1.0 - progress;
         }
 
-        bool completed = (state->logo_fill_progress >= 1.0);
+        state->logo_fill_progress = progress;
+        state->password_opacity = progress;
+
+        bool completed = (progress >= 1.0);
         if (anim->anim.logo_anim.direction) {
-            completed = (state->logo_fill_progress <= 0.0);
+            completed = (progress <= 0.0);
         }
 
         anim->completed = completed;
@@ -181,9 +185,11 @@ void draw_password_field(saver_state_t *state)
     
     cairo_t *cr = state->ctx;
 
+    // Common color for status and password field
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, state->password_opacity);
+
     // Draw status text
     const char *prompt = (state->password_prompt ?: "???");
-    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
     pango_layout_set_font_description(state->pango_layout, state->status_font);
     pango_layout_set_text(state->pango_layout, prompt, -1);
 
@@ -219,6 +225,7 @@ void draw_password_field(saver_state_t *state)
     double scale_factor = (asterisk_height / dimensions.height);
     double scaled_width = (dimensions.width * scale_factor);
 
+    cairo_push_group(cr);
     for (unsigned i = 0; i < strlen(state->password_buffer); i++) {
         cairo_save(cr);
         cairo_translate(cr, field_x + cursor_offset_x, field_y + ((cursor_height - asterisk_height) / 2.0));
@@ -229,9 +236,15 @@ void draw_password_field(saver_state_t *state)
         cursor_offset_x += scaled_width + cursor_padding_x;
     }
 
+    cairo_pattern_t *asterisk_pattern = cairo_pop_group(cr);
+
+    cairo_save(cr);
+    cairo_set_source(cr, asterisk_pattern);
+    cairo_paint_with_alpha(cr, state->password_opacity);
+    cairo_restore(cr);
     
     // Draw cursor
-    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, state->cursor_opacity);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, MIN(state->password_opacity, state->cursor_opacity));
     if (!state->is_processing) {
         cairo_rectangle(cr, field_x + cursor_offset_x, field_y, cursor_width, cursor_height);
     } else {

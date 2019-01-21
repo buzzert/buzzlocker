@@ -37,9 +37,11 @@ typedef struct {
 
     bool                    is_processing;
     bool                    is_authenticated;
+
     const char             *password_prompt;
     char                   *password_buffer;
     size_t                  password_buffer_len;
+    double                  password_opacity;
 
     animation_t             animations[kMaxAnimations];
     unsigned                num_animations;
