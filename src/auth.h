@@ -7,8 +7,10 @@
 
 #pragma once
 
+#define MAX_RESPONSE_SIZE 128
+
 typedef struct {
-    char *response_buffer;
+    char  response_buffer[MAX_RESPONSE_SIZE];
     int   response_code;
 } auth_prompt_response_t;
 

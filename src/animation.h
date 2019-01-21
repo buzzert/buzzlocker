@@ -23,6 +23,7 @@ typedef enum {
     ACursorAnimation,
     ALogoAnimation,
     ARedFlashAnimation,
+    ASpinnerAnimation,
 } AnimationType;
 
 typedef struct {
@@ -39,10 +40,15 @@ typedef struct {
     unsigned           flash_count;
 } RedFlashAnimation;
 
+typedef struct {
+    double rotation;
+} SpinnerAnimation;
+
 typedef union {
     CursorAnimation   cursor_anim;
     LogoAnimation     logo_anim;
     RedFlashAnimation redflash_anim;
+    SpinnerAnimation  spinner_anim;
 } Animation;
 
 typedef struct {

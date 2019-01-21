@@ -20,8 +20,8 @@ struct auth_handle_t {
     void             *context;
     auth_callbacks_t  callbacks;
 
-    sem_t                   prompt_semaphore;
-    auth_prompt_response_t *prompt_response;
+    sem_t                  prompt_semaphore;
+    auth_prompt_response_t prompt_response;
 };
 
 int process_message(const struct pam_message *msg, struct pam_response *resp, struct auth_handle_t *handle)
@@ -33,9 +33,12 @@ int process_message(const struct pam_message *msg, struct pam_response *resp, st
 
             sem_wait(&handle->prompt_semaphore);
 
-            auth_prompt_response_t *response = handle->prompt_response;
-            resp->resp = response->response_buffer;
-            resp->resp_retcode = response->response_code;
+            auth_prompt_response_t response = handle->prompt_response;
+
+            // resp is freed by libpam
+            resp->resp = malloc(MAX_RESPONSE_SIZE);
+            strncpy(resp->resp, response.response_buffer, MAX_RESPONSE_SIZE);
+            resp->resp_retcode = 0; // docs say this should always be zero
             break;
         }
         case PAM_ERROR_MSG:
@@ -54,8 +57,8 @@ int perform_conversation(int num_msg, const struct pam_message **msg, struct pam
 	*resp = calloc(num_msg, sizeof(struct pam_response));
 
     struct auth_handle_t *handle = (struct auth_handle_t *)data;
-    for (unsigned i = 0; i < num_msg; ++i) {
-        process_message(msg[i], resp[i], handle);
+    for (unsigned i = 0; i < num_msg; i++) {
+        process_message(&(( *msg )[i]), & (( *resp )[i]), handle);
     }
 
     return PAM_SUCCESS;
@@ -105,7 +108,6 @@ struct auth_handle_t* auth_begin_authentication(auth_callbacks_t callbacks, void
     struct auth_handle_t *handle = malloc(sizeof(struct auth_handle_t));
     handle->callbacks = callbacks;
     handle->context = context;
-    handle->prompt_response = NULL;
     sem_init(&handle->prompt_semaphore, 0, 0);
 
     pthread_t auth_thread;
@@ -119,11 +121,7 @@ struct auth_handle_t* auth_begin_authentication(auth_callbacks_t callbacks, void
 
 void auth_attempt_authentication(struct auth_handle_t *handle, auth_prompt_response_t response)
 {
-    if (handle->prompt_response == NULL) {
-        handle->prompt_response = malloc(sizeof(auth_prompt_response_t));
-    }
-    handle->prompt_response = memcpy(handle->prompt_response, &response, sizeof(auth_prompt_response_t));
-
+    memcpy(&handle->prompt_response, &response, sizeof(auth_prompt_response_t));
     sem_post(&handle->prompt_semaphore);
 }
 

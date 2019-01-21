@@ -16,6 +16,11 @@
 #include <stdbool.h>
 
 #define kMaxAnimations 32
+#define kMaxPasswordLength 128
+#define kMaxPromptLength   128
+
+typedef unsigned animation_key_t;
+#define ANIM_KEY_NOEXIST (kMaxAnimations + 1)
 
 typedef struct {
     cairo_t                *ctx;
@@ -36,13 +41,16 @@ typedef struct {
 
     bool                    input_allowed;
     double                  cursor_opacity;
+    animation_key_t         cursor_anim_key;
 
     bool                    is_processing;
     bool                    is_authenticated;
 
-    const char             *password_prompt;
-    char                   *password_buffer;
-    size_t                  password_buffer_len;
+    RsvgHandle             *spinner_svg_handle;
+    animation_key_t         spinner_anim_key;
+
+    char                    password_prompt[kMaxPromptLength];
+    char                    password_buffer[kMaxPasswordLength];
     double                  password_opacity;
 
     animation_t             animations[kMaxAnimations];
@@ -51,8 +59,17 @@ typedef struct {
     struct auth_handle_t   *auth_handle;
 } saver_state_t;
 
+// Use this to set the prompt ("Password: ")
+void set_password_prompt(saver_state_t *state, const char *prompt);
+
 // Start an animation
-void schedule_animation(saver_state_t *state, animation_t anim);
+animation_key_t schedule_animation(saver_state_t *state, animation_t anim);
+
+// Stop an animation
+void remove_animation(saver_state_t *state, animation_key_t anim_key);
+
+// Get a running animation (returns NULL if it doesn't exist)
+animation_t* get_animation_for_key(saver_state_t *state, animation_key_t anim_key);
 
 // Update all running animations
 void update_animations(saver_state_t *state);

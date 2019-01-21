@@ -16,7 +16,6 @@
 #include <unistd.h>
 
 static const int kXSecureLockCharFD = 0;
-static const size_t kMaxPasswordLength = 128;
 
 static const int kDefaultWidth = 1024;
 static const int kDefaultHeight = 768;
@@ -69,7 +68,7 @@ static void handle_xsl_key_input(saver_state_t *state, const char c)
             accept_password(state);
             break;
         default:
-            if (pw_len + 1 < state->password_buffer_len) {
+            if (pw_len + 1 < kMaxPasswordLength) {
                 password_buf[pw_len] = c;
                 password_buf[pw_len + 1] = '\0';
             }
@@ -95,9 +94,9 @@ static void handle_key_event(saver_state_t *state, XKeyEvent *event)
     } else if (XK_Return == key) {
         accept_password(state);
     } else if (strlen(keybuf) > 0) {
-        size_t add_len = strlen(keybuf);
-        if ( (length + add_len) < state->password_buffer_len - 1 ) {
-            strncpy(password_buf + length, keybuf, add_len + 1);
+        if (length + 1 < kMaxPasswordLength) {
+            password_buf[length] = keybuf[0];
+            password_buf[length + 1] = '\0';
         }
     }
 }
@@ -152,18 +151,25 @@ static void clear_password(saver_state_t *state)
 
 static void accept_password(saver_state_t *state)
 {
-    size_t pw_length = strlen(state->password_buffer);
-    char *password_buf = malloc(pw_length);
-    strncpy(password_buf, state->password_buffer, pw_length + 1);
-
     auth_prompt_response_t response;
-    response.response_buffer = password_buf;
+    strncpy(response.response_buffer, state->password_buffer, MAX_RESPONSE_SIZE);
     response.response_code = 0;
     auth_attempt_authentication(state->auth_handle, response);
 
     // Block input until we hear back from the auth thread
     state->is_processing = true;
     state->input_allowed = false;
+
+    // Spinner animation
+    if (state->spinner_anim_key == ANIM_KEY_NOEXIST) {
+        state->spinner_anim_key = schedule_animation(state, (animation_t) {
+            .type = ASpinnerAnimation,
+            .anim.spinner_anim = { 0 }
+        });
+    }
+
+    // Update prompt
+    set_password_prompt(state, "Authenticating...");
 }
 
 static void ending_animation_completed(struct animation_t *animation, void *context)
@@ -174,6 +180,17 @@ static void ending_animation_completed(struct animation_t *animation, void *cont
 
 static void authentication_accepted(saver_state_t *state)
 {
+    state->is_processing = false;
+    set_password_prompt(state, "Welcome");
+    clear_password(state);
+
+    // Stop cursor animation
+    animation_t *cursor_anim = get_animation_for_key(state, state->cursor_anim_key);
+    if (cursor_anim) {
+        cursor_anim->anim.cursor_anim.cursor_animating = false;
+        state->cursor_opacity = 0.0;
+    }
+
     animation_t out_animation = {
         .type = ALogoAnimation,
         .completion_func = ending_animation_completed,
@@ -204,22 +221,18 @@ static void authentication_rejected(saver_state_t *state)
 
 void callback_show_info(const char *info_msg, void *context)
 {
-    saver_state(context)->password_prompt = info_msg;
+    set_password_prompt(saver_state(context), info_msg);
 }
 
 void callback_show_error(const char *error_msg, void *context)
 {
-    saver_state(context)->password_prompt = error_msg;
+    set_password_prompt(saver_state(context), error_msg);
 }
 
 void callback_prompt_user(const char *prompt, void *context)
 {
-    size_t prompt_len = strlen(prompt);
-    char *new_prompt = malloc(prompt_len);
-    strncpy(new_prompt, prompt, prompt_len + 1);
-
     saver_state_t *state = saver_state(context);
-    state->password_prompt = new_prompt;
+    set_password_prompt(state, prompt);
     state->input_allowed = true;
     state->is_processing = false;
 }
@@ -236,7 +249,7 @@ void callback_authentication_result(int result, void *context)
 }
 
 /*
- * Main drawing/update routines 
+ * Main drawing/update routines
  */
 
 static void update(saver_state_t *state)
@@ -266,12 +279,10 @@ static int runloop(cairo_surface_t *surface)
     state.cursor_opacity = 1.0;
     state.pango_layout = pango_layout;
     state.status_font = status_font;
-    state.password_buffer = calloc(1, kMaxPasswordLength);
-    state.password_buffer_len = kMaxPasswordLength;
     state.input_allowed = false;
-    state.password_prompt = "";
     state.is_authenticated = false;
     state.is_processing = false;
+    state.spinner_anim_key = ANIM_KEY_NOEXIST;
 
     // Add initial animations
     // Cursor animation -- repeats indefinitely
@@ -282,7 +293,7 @@ static int runloop(cairo_surface_t *surface)
             .cursor_animating = true
         }
     };
-    schedule_animation(&state, cursor_animation);
+    state.cursor_anim_key = schedule_animation(&state, cursor_animation);
 
     // Logo incoming animation
     animation_t logo_animation = {
@@ -306,6 +317,9 @@ static int runloop(cairo_surface_t *surface)
     };
 
     state.auth_handle = auth_begin_authentication(callbacks, &state);
+
+    // XXX: hack for my desktop until i get multiple monitors working
+    //cairo_translate(cr, 2304.0, 0.0);
 
     // Main run loop
     const int frames_per_sec = 60;

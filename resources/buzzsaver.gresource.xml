@@ -3,6 +3,7 @@
     <gresource prefix="/">
         <file>resources/asterisk.svg</file>
         <file>resources/logo.svg</file>
+        <file>resources/spinner.svg</file>
 </gresource>
 </gresources>
 
