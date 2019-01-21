@@ -39,7 +39,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
         CursorAnimation *ca = &anim->anim.cursor_anim;
 
         if (ca->cursor_animating) {
-            const double cursor_fade_speed = 0.01;
+            const double cursor_fade_speed = 0.05;
             if (ca->cursor_fade_direction > 0) {
                 state->cursor_opacity += cursor_fade_speed;
                 if (state->cursor_opacity > 1.0) {
