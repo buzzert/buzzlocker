@@ -24,6 +24,8 @@ typedef struct {
     PangoLayout            *pango_layout;
     PangoFontDescription   *status_font;
 
+    double                  background_redshift;
+
     RsvgHandle             *logo_svg_handle;
     double                  logo_fill_progress;
 
@@ -54,6 +56,9 @@ void schedule_animation(saver_state_t *state, animation_t anim);
 
 // Update all running animations
 void update_animations(saver_state_t *state);
+
+// Background
+void draw_background(saver_state_t *state);
 
 // The purple sidebar
 void draw_logo(saver_state_t *state);

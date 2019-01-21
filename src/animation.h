@@ -14,39 +14,46 @@ struct animation_t;
 typedef void(*AnimationCompletion)(struct animation_t *anim, void *context);
 
 typedef enum {
+    IN,
+    OUT
+} AnimationDirection;
+
+typedef enum {
     _EmptyAnimationType,
     ACursorAnimation,
     ALogoAnimation,
+    ARedFlashAnimation,
 } AnimationType;
 
 typedef struct {
-    AnimationType type;
-
     bool   cursor_animating;
     double cursor_fade_direction;
 } CursorAnimation;
 
 typedef struct {
-    AnimationType type;
-
-    bool                 direction; // false: in, true: out
+    AnimationDirection direction;
 } LogoAnimation;
 
-typedef union {
-    AnimationType type;
+typedef struct {
+    AnimationDirection direction;
+    unsigned           flash_count;
+} RedFlashAnimation;
 
-    CursorAnimation cursor_anim;
-    LogoAnimation   logo_anim;
+typedef union {
+    CursorAnimation   cursor_anim;
+    LogoAnimation     logo_anim;
+    RedFlashAnimation redflash_anim;
 } Animation;
 
 typedef struct {
+    AnimationType        type;
+    Animation            anim;
+
     bool                 completed;
     anim_time_interval_t start_time;
 
     AnimationCompletion  completion_func;
     void                *completion_func_context;
-
-    Animation anim;
 } animation_t;
 
 // Convenience: returns current time as anim_time_interval_t

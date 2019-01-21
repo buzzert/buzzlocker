@@ -18,8 +18,8 @@
 static const int kXSecureLockCharFD = 0;
 static const size_t kMaxPasswordLength = 128;
 
-static const int kDefaultWidth = 800;
-static const int kDefaultHeight = 600;
+static const int kDefaultWidth = 1024;
+static const int kDefaultHeight = 768;
 
 static inline saver_state_t* saver_state(void *c)
 {
@@ -175,15 +175,27 @@ static void ending_animation_completed(struct animation_t *animation, void *cont
 static void authentication_accepted(saver_state_t *state)
 {
     animation_t out_animation = {
-        .completed = false,
+        .type = ALogoAnimation,
         .completion_func = ending_animation_completed,
         .completion_func_context = state,
         .anim.logo_anim = {
-            .type = ALogoAnimation,
             .direction = true
         }
     };
     schedule_animation(state, out_animation);
+}
+
+static void authentication_rejected(saver_state_t *state)
+{
+    animation_t flash_animation = {
+        .type = ARedFlashAnimation,
+        .anim.redflash_anim = {
+            .direction = IN
+        }
+    };
+    schedule_animation(state, flash_animation);
+
+    clear_password(state);
 }
 
 /*
@@ -219,7 +231,7 @@ void callback_authentication_result(int result, void *context)
         authentication_accepted(state);
     } else {
         // Try again
-        clear_password(state);
+        authentication_rejected(state);
     }
 }
 
@@ -235,11 +247,7 @@ static void update(saver_state_t *state)
 
 static void draw(saver_state_t *state)
 {
-    // Draw background
-    cairo_t *cr = state->ctx;
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.0);
-    cairo_paint(cr);
-
+    draw_background(state);
     draw_logo(state);
     draw_password_field(state);
 }
@@ -268,9 +276,8 @@ static int runloop(cairo_surface_t *surface)
     // Add initial animations
     // Cursor animation -- repeats indefinitely
     animation_t cursor_animation = {
-        .completed = false,
+        .type = ACursorAnimation,
         .anim.cursor_anim = {
-            .type = ACursorAnimation,
             .cursor_fade_direction = -1.0,
             .cursor_animating = true
         }
@@ -279,10 +286,9 @@ static int runloop(cairo_surface_t *surface)
 
     // Logo incoming animation
     animation_t logo_animation = {
-        .completed = false,
+        .type = ALogoAnimation,
         .anim.logo_anim = {
-            .type = ALogoAnimation,
-            .direction = false
+            .direction = IN
         }
     };
     schedule_animation(&state, logo_animation);

@@ -9,6 +9,7 @@
 
 #include <assert.h>
 #include <gio/gio.h>
+#include <math.h>
 
 static const double kLogoBackgroundWidth = 500.0;
 
@@ -35,7 +36,7 @@ GBytes* get_data_for_resource(const char *resource_path)
 static void update_single_animation(saver_state_t *state, animation_t *anim)
 {
     // Cursor animation
-    if (anim->anim.type == ACursorAnimation) {
+    if (anim->type == ACursorAnimation) {
         CursorAnimation *ca = &anim->anim.cursor_anim;
 
         if (ca->cursor_animating && !state->is_processing) {
@@ -57,7 +58,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
     }
 
     // Logo animation
-    else if (anim->anim.type == ALogoAnimation) {
+    else if (anim->type == ALogoAnimation) {
         const double logo_duration = 0.6;
 
         anim_time_interval_t now = anim_now();
@@ -79,6 +80,39 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
 
         anim->completed = completed;
     }
+
+    // Background red flash animation
+    else if (anim->type == ARedFlashAnimation) {
+        const double duration = 0.1;
+
+        anim_time_interval_t now = anim_now();
+        double progress = (now - anim->start_time) / duration;
+        progress = anim_qubic_ease_out(progress);
+
+        // Check for reverse direction
+        if (anim->anim.redflash_anim.direction == OUT) {
+            progress = 1.0 - progress;
+        }
+
+        AnimationDirection direction = anim->anim.redflash_anim.direction;
+        bool finished = (progress >= 1.0);
+        if (anim->anim.redflash_anim.direction) {
+            finished = (progress <= 0.0);
+        }
+
+        bool completed = false;
+        if (finished) {
+            anim->anim.redflash_anim.flash_count++;
+            anim->anim.redflash_anim.direction = !direction;
+            anim->start_time = anim_now();
+            if (anim->anim.redflash_anim.flash_count > 3) {
+                completed = true;
+            }
+        }
+
+        anim->completed = completed;
+        state->background_redshift = progress;
+    }
 }
 
 static unsigned next_anim_index(saver_state_t *state, unsigned cur_idx)
@@ -86,7 +120,7 @@ static unsigned next_anim_index(saver_state_t *state, unsigned cur_idx)
     unsigned idx = cur_idx + 1;
     for (; idx < kMaxAnimations; idx++) {
         animation_t anim = state->animations[idx];
-        if (anim.anim.type != _EmptyAnimationType) break;
+        if (anim.type != _EmptyAnimationType) break;
     }
 
     return idx;
@@ -99,7 +133,7 @@ void schedule_animation(saver_state_t *state, animation_t anim)
     // Find next empty element
     for (unsigned idx = 0; idx < kMaxAnimations; idx++) {
         animation_t check_anim = state->animations[idx];
-        if (check_anim.anim.type == _EmptyAnimationType) {
+        if (check_anim.type == _EmptyAnimationType) {
             state->animations[idx] = anim;
             state->num_animations++;
             break;
@@ -117,7 +151,7 @@ void update_animations(saver_state_t *state)
 
         update_single_animation(state, anim);
         if (anim->completed) {
-            state->animations[idx].anim.type = _EmptyAnimationType;
+            state->animations[idx].type = _EmptyAnimationType;
             if (anim->completion_func != NULL) {
                 anim->completion_func((struct animation_t *)anim, anim->completion_func_context);
             }
@@ -131,6 +165,14 @@ void update_animations(saver_state_t *state)
     }
 
     state->num_animations -= completed_animations;
+}
+
+void draw_background(saver_state_t *state)
+{
+    // Draw background
+    cairo_t *cr = state->ctx;
+    cairo_set_source_rgba(cr, (state->background_redshift / 1.5), 0.0, 0.0, 1.0);
+    cairo_paint(cr);
 }
 
 void draw_logo(saver_state_t *state)
@@ -252,6 +294,5 @@ void draw_password_field(saver_state_t *state)
         cairo_rectangle(cr, field_x, field_y, cursor_offset_x, cursor_height);
     }
     cairo_fill(cr);
-
 }
 
