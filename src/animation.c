@@ -11,6 +11,11 @@
  * Easing functions
  */
 
+double anim_identity(double p)
+{
+    return p;
+}
+
 double anim_qubic_ease_out(double p)
 {
 	double f = (p - 1.0);
@@ -35,11 +40,18 @@ anim_time_interval_t anim_now()
     return (ms / 1000.0);
 }
 
-double anim_progress(animation_t *anim, const double duration)
+double anim_progress_ease(animation_t *anim, const double duration, AnimationEasingFunc easing_f)
 {
     const anim_time_interval_t now = anim_now();
     double progress = (now - anim->start_time) / duration;
+    progress = easing_f(progress);
+
     return (anim->direction == IN) ? progress : (1.0 - progress);
+}
+
+double anim_progress(animation_t *anim, const double duration)
+{
+    return anim_progress_ease(anim, duration, anim_identity);
 }
 
 bool anim_complete(animation_t *anim, const double progress)

@@ -47,7 +47,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
         if (ca->cursor_animating) {
             if (!state->is_processing) {
                 const double fade_duration = 0.5;
-                double progress = anim_progress(anim, fade_duration);
+                const double progress = anim_progress(anim, fade_duration);
 
                 state->cursor_opacity = progress;
 
@@ -64,9 +64,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
     // Logo animation
     else if (anim->type == ALogoAnimation) {
         const double logo_duration = 0.6;
-
-        double progress = anim_progress(anim, logo_duration);
-        progress = anim_qubic_ease_out(progress);
+        const double progress = anim_progress_ease(anim, logo_duration, anim_qubic_ease_out);
 
         state->logo_fill_progress = progress;
         state->password_opacity = progress;
@@ -77,9 +75,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
     // Background red flash animation
     else if (anim->type == ARedFlashAnimation) {
         const double duration = 0.1;
-
-        double progress = anim_progress(anim, duration);
-        progress = anim_qubic_ease_out(progress);
+        const double progress = anim_progress_ease(anim, duration, anim_qubic_ease_out);
 
         bool completed = false;
         if (anim_complete(anim, progress)) {

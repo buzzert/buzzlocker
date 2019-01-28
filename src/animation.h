@@ -70,14 +70,17 @@ typedef struct {
 // returns current time as anim_time_interval_t
 anim_time_interval_t anim_now();
 
+// Easing functions
+typedef double(*AnimationEasingFunc)(double in);
+double anim_identity(double p);
+double anim_qubic_ease_out(double p);
+double anim_quad_ease_out(double p);
+
 // Returns normalized progress based on start time of `anim` and `duration`
 double anim_progress(animation_t *anim, const double duration);
+double anim_progress_ease(animation_t *anim, const double duration, AnimationEasingFunc easing_func);
 
 // Returns true if `anim` is complete depending on direction
 bool anim_complete(animation_t *anim, const double progress);
-
-// Easing functions
-double anim_qubic_ease_out(double p);
-double anim_quad_ease_out(double p);
 
 
