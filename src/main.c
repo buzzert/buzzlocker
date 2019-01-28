@@ -20,6 +20,8 @@ static const int kXSecureLockCharFD = 0;
 static const int kDefaultWidth = 1024;
 static const int kDefaultHeight = 768;
 
+static const char *kDefaultFont = "Input Mono 22";
+
 static inline saver_state_t* saver_state(void *c)
 {
     return (saver_state_t *)c;
@@ -27,6 +29,25 @@ static inline saver_state_t* saver_state(void *c)
 
 static void clear_password(saver_state_t *state);
 static void accept_password(saver_state_t *state);
+
+static int poll_events(saver_state_t *state);
+
+static void handle_key_event(saver_state_t *state, XKeyEvent *event);
+static void handle_xsl_key_input(saver_state_t *state, const char c);
+static void window_changed_size(saver_state_t *state, XConfigureEvent *event);
+
+static void ending_animation_completed(struct animation_t *animation, void *context);
+static void authentication_accepted(saver_state_t *state);
+static void authentication_rejected(saver_state_t *state);
+
+static void update(saver_state_t *state);
+static void draw(saver_state_t *state);
+static int runloop(cairo_surface_t *surface);
+
+void callback_show_info(const char *info_msg, void *context);
+void callback_show_error(const char *error_msg, void *context);
+void callback_prompt_user(const char *prompt, void *context);
+void callback_authentication_result(int result, void *context);
 
 /*
  * Event handling
@@ -40,6 +61,11 @@ static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
     cairo_xlib_surface_set_size(state->surface, event->width, event->height);
 }
 
+// The following two methods are separate methods for processing input:
+// The first one `handle_xsl_key_input` is for handling input via the XSecureLock
+// file descriptor, which basically gives us TTY keycodes. The second handles
+// input via X11, which is really only used for testing (when the locker is being
+// run inside a window during development).
 static void handle_xsl_key_input(saver_state_t *state, const char c)
 {
     if (!state->input_allowed) return;
@@ -76,6 +102,8 @@ static void handle_xsl_key_input(saver_state_t *state, const char c)
     }
 }
 
+// This input handler is only when the locker is being run in "X11 mode" for development
+// (See comment above for why this is separate)
 static void handle_key_event(saver_state_t *state, XKeyEvent *event)
 {
     if (!state->input_allowed) return;
@@ -195,9 +223,7 @@ static void authentication_accepted(saver_state_t *state)
         .type = ALogoAnimation,
         .completion_func = ending_animation_completed,
         .completion_func_context = state,
-        .anim.logo_anim = {
-            .direction = true
-        }
+        .direction = OUT,
     };
     schedule_animation(state, out_animation);
 }
@@ -206,9 +232,7 @@ static void authentication_rejected(saver_state_t *state)
 {
     animation_t flash_animation = {
         .type = ARedFlashAnimation,
-        .anim.redflash_anim = {
-            .direction = IN
-        }
+        .direction = IN,
     };
     schedule_animation(state, flash_animation);
 
@@ -271,7 +295,7 @@ static int runloop(cairo_surface_t *surface)
 
     // Initialize pango context
     PangoLayout *pango_layout = pango_cairo_create_layout(cr);
-    PangoFontDescription *status_font = pango_font_description_from_string("Input Mono 22");
+    PangoFontDescription *status_font = pango_font_description_from_string(kDefaultFont);
 
     saver_state_t state = { 0 };
     state.ctx = cr;
@@ -288,8 +312,8 @@ static int runloop(cairo_surface_t *surface)
     // Cursor animation -- repeats indefinitely
     animation_t cursor_animation = {
         .type = ACursorAnimation,
+        .direction = OUT,
         .anim.cursor_anim = {
-            .cursor_fade_direction = -1.0,
             .cursor_animating = true
         }
     };
@@ -298,9 +322,7 @@ static int runloop(cairo_surface_t *surface)
     // Logo incoming animation
     animation_t logo_animation = {
         .type = ALogoAnimation,
-        .anim.logo_anim = {
-            .direction = IN
-        }
+        .direction = IN,
     };
     schedule_animation(&state, logo_animation);
 

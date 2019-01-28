@@ -46,17 +46,14 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
 
         if (ca->cursor_animating) {
             if (!state->is_processing) {
-                const double cursor_fade_speed = 0.05;
-                if (ca->cursor_fade_direction > 0) {
-                    state->cursor_opacity += cursor_fade_speed;
-                    if (state->cursor_opacity > 1.0) {
-                        ca->cursor_fade_direction *= -1;
-                    }
-                } else {
-                    state->cursor_opacity -= cursor_fade_speed;
-                    if (state->cursor_opacity <= 0.0) {
-                        ca->cursor_fade_direction *= -1;
-                    }
+                const double fade_duration = 0.5;
+                double progress = anim_progress(anim, fade_duration);
+
+                state->cursor_opacity = progress;
+
+                if (anim_complete(anim, progress)) {
+                    anim->direction = !anim->direction;
+                    anim->start_time = anim_now();
                 }
             } else {
                 state->cursor_opacity = 1.0;
@@ -68,49 +65,27 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
     else if (anim->type == ALogoAnimation) {
         const double logo_duration = 0.6;
 
-        anim_time_interval_t now = anim_now();
-        double progress = (now - anim->start_time) / logo_duration;
+        double progress = anim_progress(anim, logo_duration);
         progress = anim_qubic_ease_out(progress);
-
-        // Check for reverse direction
-        if (anim->anim.logo_anim.direction) {
-            progress = 1.0 - progress;
-        }
 
         state->logo_fill_progress = progress;
         state->password_opacity = progress;
 
-        bool completed = (progress >= 1.0);
-        if (anim->anim.logo_anim.direction) {
-            completed = (progress <= 0.0);
-        }
-
-        anim->completed = completed;
+        anim->completed = anim_complete(anim, progress);
     }
 
     // Background red flash animation
     else if (anim->type == ARedFlashAnimation) {
         const double duration = 0.1;
 
-        anim_time_interval_t now = anim_now();
-        double progress = (now - anim->start_time) / duration;
+        double progress = anim_progress(anim, duration);
         progress = anim_qubic_ease_out(progress);
 
-        // Check for reverse direction
-        if (anim->anim.redflash_anim.direction == OUT) {
-            progress = 1.0 - progress;
-        }
-
-        AnimationDirection direction = anim->anim.redflash_anim.direction;
-        bool finished = (progress >= 1.0);
-        if (anim->anim.redflash_anim.direction) {
-            finished = (progress <= 0.0);
-        }
-
         bool completed = false;
-        if (finished) {
+        if (anim_complete(anim, progress)) {
+            AnimationDirection direction = anim->direction;
+            anim->direction = !direction;
             anim->anim.redflash_anim.flash_count++;
-            anim->anim.redflash_anim.direction = !direction;
             anim->start_time = anim_now();
             if (anim->anim.redflash_anim.flash_count > 3) {
                 completed = true;
@@ -231,12 +206,14 @@ void draw_logo(saver_state_t *state)
 
     cairo_t *cr = state->ctx;
 
+    // Draw bar background
     cairo_save(cr);
     cairo_set_source_rgb(cr, (208.0 / 255.0), (69.0 / 255.0), (255.0 / 255.0));
     double fill_height = (state->canvas_height * state->logo_fill_progress);
     cairo_rectangle(cr, 0, 0, kLogoBackgroundWidth, fill_height);
     cairo_fill(cr);
 
+    // Common color -- transparent for logo
     cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
     
     // Scale and draw logo
@@ -305,6 +282,7 @@ void draw_password_field(saver_state_t *state)
 
         cairo_translate(cr, field_x, field_y - line_height - 8.0);
 
+        // Translate, rotate, translate; so rotation is happening about the center.
         double tr_amount = (spinner_dimensions.width * spinner_scale_factor) / 2.0;
         cairo_translate(cr, tr_amount, tr_amount);
         cairo_rotate(cr, spinner_anim.rotation);
@@ -332,6 +310,7 @@ void draw_password_field(saver_state_t *state)
     double scale_factor = (asterisk_height / dimensions.height);
     double scaled_width = (dimensions.width * scale_factor);
 
+    // Asterisks are all rendered in a single group so their opacity can change (password_opacity)
     cairo_push_group(cr);
     for (unsigned i = 0; i < strlen(state->password_buffer); i++) {
         cairo_save(cr);
@@ -350,7 +329,7 @@ void draw_password_field(saver_state_t *state)
     cairo_paint_with_alpha(cr, state->password_opacity);
     cairo_restore(cr);
     cairo_pattern_destroy(asterisk_pattern);
-    
+
     // Draw cursor
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, MIN(state->password_opacity, state->cursor_opacity));
     if (!state->is_processing) {

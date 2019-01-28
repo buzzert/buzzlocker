@@ -26,20 +26,21 @@ typedef enum {
     ASpinnerAnimation,
 } AnimationType;
 
+// Cursor flash animation
 typedef struct {
-    bool   cursor_animating;
-    double cursor_fade_direction;
+    bool cursor_animating;
 } CursorAnimation;
 
+// Logo transition in/out animation
 typedef struct {
-    AnimationDirection direction;
 } LogoAnimation;
 
+// Red flash for incorrect password
 typedef struct {
-    AnimationDirection direction;
     unsigned           flash_count;
 } RedFlashAnimation;
 
+// Spinner shown when checking password
 typedef struct {
     double rotation;
 } SpinnerAnimation;
@@ -58,12 +59,22 @@ typedef struct {
     bool                 completed;
     anim_time_interval_t start_time;
 
+    AnimationDirection   direction;
+
     AnimationCompletion  completion_func;
     void                *completion_func_context;
 } animation_t;
 
-// Convenience: returns current time as anim_time_interval_t
+// Convenience functions
+
+// returns current time as anim_time_interval_t
 anim_time_interval_t anim_now();
+
+// Returns normalized progress based on start time of `anim` and `duration`
+double anim_progress(animation_t *anim, const double duration);
+
+// Returns true if `anim` is complete depending on direction
+bool anim_complete(animation_t *anim, const double progress);
 
 // Easing functions
 double anim_qubic_ease_out(double p);
