@@ -27,9 +27,9 @@ static inline saver_state_t* saver_state(void *c)
 static void clear_password(saver_state_t *state);
 static void accept_password(saver_state_t *state);
 
-static int poll_events(saver_state_t *state);
+static void poll_events(saver_state_t *state);
 
-static void handle_key_event(saver_state_t *state, XKeyEvent *event);
+static bool handle_key_event(saver_state_t *state, XKeyEvent *event);
 static void handle_xsl_key_input(saver_state_t *state, const char c);
 static void window_changed_size(saver_state_t *state, XConfigureEvent *event);
 
@@ -97,20 +97,19 @@ static void handle_xsl_key_input(saver_state_t *state, const char c)
             }
             break;
     }
-    
-    set_layer_needs_draw(state, LAYER_PASSWORD, true);
 }
 
 // This input handler is only when the locker is being run in "X11 mode" for development
 // (See comment above for why this is separate)
-static void handle_key_event(saver_state_t *state, XKeyEvent *event)
+static bool handle_key_event(saver_state_t *state, XKeyEvent *event)
 {
-    if (!state->input_allowed) return;
+    if (!state->input_allowed) return false;
 
     KeySym key;
     char keybuf[8];
     XLookupString(event, keybuf, sizeof(keybuf), &key, NULL);
 
+    bool handled = true;
     char *password_buf = state->password_buffer;
     size_t length = strlen(password_buf);
     if (XK_BackSpace == key) {
@@ -125,14 +124,17 @@ static void handle_key_event(saver_state_t *state, XKeyEvent *event)
             password_buf[length] = keybuf[0];
             password_buf[length + 1] = '\0';
         }
+    } else {
+        handled = false;
     }
 
-    set_layer_needs_draw(state, LAYER_PASSWORD, true);
+    return handled;
 }
 
-static int poll_events(saver_state_t *state)
+static void poll_events(saver_state_t *state)
 {
     XEvent e;
+    bool handled_key_event = false;
     const bool block_for_next_event = false;
 
     // Via xsecurelock, take this route
@@ -140,6 +142,7 @@ static int poll_events(saver_state_t *state)
     ssize_t read_res = read(kXSecureLockCharFD, &buf, 1);
     if (read_res > 0) {
         handle_xsl_key_input(state, buf);
+        handled_key_event = true;
     }
 
     // Temp: this should be handled by x11_support
@@ -149,24 +152,35 @@ static int poll_events(saver_state_t *state)
             // XNextEvent blocks the caller until an event arrives
             XNextEvent(display, &e);
         } else {
-            return 0;
+            break;
         }
 
         switch (e.type) {
             case ConfigureNotify:
                 window_changed_size(state, (XConfigureEvent *)&e);
-                return 1;
+                break;
             case ButtonPress:
-                return -e.xbutton.button;
+                break;
             case KeyPress:
-                handle_key_event(state, (XKeyEvent *)&e);
-                return 1;
+                handled_key_event = handle_key_event(state, (XKeyEvent *)&e);
+                break;
             default:
                 fprintf(stderr, "Dropping unhandled XEevent.type = %d.\n", e.type);
+                break;
         }
     }
 
-    return 0;
+    if (handled_key_event) {
+        // Mark password layer dirty
+        set_layer_needs_draw(state, LAYER_PASSWORD, true);
+
+        // Reset cursor flash animation
+        animation_t *cursor_anim = get_animation_for_key(state, state->cursor_anim_key);
+        if (cursor_anim) {
+            cursor_anim->start_time = anim_now() + 0.3;
+            cursor_anim->direction = OUT;
+        }
+    }
 }
 
 /*

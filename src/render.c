@@ -378,8 +378,8 @@ void draw_password_field(saver_state_t *state)
     // Draw cursor
     const double x_offset = (num_asterisks * asterisk_width);
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, MIN(state->password_opacity, state->cursor_opacity));
+    draw_background(state, field_x + x_offset, field_y, state->canvas_width, cursor_height);
     if (!state->is_processing) {
-        draw_background(state, field_x + x_offset, field_y, state->canvas_width, cursor_height);
         cairo_rectangle(cr, field_x + x_offset, field_y, cursor_width, cursor_height);
     } else {
         // Fill asterisks

@@ -6,6 +6,7 @@
 
 #include "animation.h"
 #include <stdlib.h>
+#include <sys/param.h>
 
 /*
  * Easing functions
@@ -43,7 +44,7 @@ anim_time_interval_t anim_now()
 double anim_progress_ease(animation_t *anim, const double duration, AnimationEasingFunc easing_f)
 {
     const anim_time_interval_t now = anim_now();
-    double progress = (now - anim->start_time) / duration;
+    double progress = MAX(0.0, now - anim->start_time) / duration;
     progress = easing_f(progress);
 
     return (anim->direction == IN) ? progress : (1.0 - progress);
