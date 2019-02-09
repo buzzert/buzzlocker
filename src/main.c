@@ -97,6 +97,8 @@ static void handle_xsl_key_input(saver_state_t *state, const char c)
             }
             break;
     }
+    
+    set_layer_needs_draw(state, LAYER_PASSWORD, true);
 }
 
 // This input handler is only when the locker is being run in "X11 mode" for development
