@@ -352,9 +352,6 @@ static int runloop(cairo_surface_t *surface)
 
     state.auth_handle = auth_begin_authentication(callbacks, &state);
 
-    // XXX: hack for my desktop until i get multiple monitors working
-    //cairo_translate(cr, 2304.0, 0.0);
-
     // Main run loop
     const int frames_per_sec = 60;
     const long sleep_nsec = (1.0 / frames_per_sec) * 1000000000;
