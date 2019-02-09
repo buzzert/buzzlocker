@@ -22,6 +22,13 @@
 typedef unsigned animation_key_t;
 #define ANIM_KEY_NOEXIST (kMaxAnimations + 1)
 
+typedef enum {
+    LAYER_BACKGROUND     = 1 << 0,
+    LAYER_PROMPT         = 1 << 1,
+    LAYER_LOGO           = 1 << 2,
+    LAYER_PASSWORD       = 1 << 3,
+} layer_type_t;
+
 typedef struct {
     cairo_t                *ctx;
     cairo_surface_t        *surface;
@@ -56,6 +63,8 @@ typedef struct {
     animation_t             animations[kMaxAnimations];
     unsigned                num_animations;
 
+    layer_type_t            dirty_layers;
+
     struct auth_handle_t   *auth_handle;
 } saver_state_t;
 
@@ -75,7 +84,7 @@ animation_t* get_animation_for_key(saver_state_t *state, animation_key_t anim_ke
 void update_animations(saver_state_t *state);
 
 // Background
-void draw_background(saver_state_t *state);
+void draw_background(saver_state_t *state, double x, double y, double width, double height);
 
 // The purple sidebar
 void draw_logo(saver_state_t *state);
@@ -83,4 +92,8 @@ void draw_logo(saver_state_t *state);
 // The status string and paassword field
 void draw_password_field(saver_state_t *state);
 
+// Convenience function for getting layer dirty state
+bool layer_needs_draw(saver_state_t *state, const layer_type_t type);
 
+// Convenience function for setting layer dirty state
+void set_layer_needs_draw(saver_state_t *state, const layer_type_t type, bool needs_draw);

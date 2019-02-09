@@ -68,6 +68,14 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
 
         state->logo_fill_progress = progress;
         state->password_opacity = progress;
+        set_layer_needs_draw(state, LAYER_LOGO, true);
+        if (anim->direction == OUT) {
+            // When transitioning OUT, background essentially draws over the logo as it wipes out
+            set_layer_needs_draw(state, LAYER_BACKGROUND, true);
+        }
+
+        // And since the status text fades along with the logo
+        set_layer_needs_draw(state, LAYER_PROMPT, true);
 
         anim->completed = anim_complete(anim, progress);
     }
@@ -90,6 +98,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
 
         anim->completed = completed;
         state->background_redshift = progress;
+        set_layer_needs_draw(state, LAYER_BACKGROUND, true);
     }
 
     // Spinner animation
@@ -169,6 +178,26 @@ void update_animations(saver_state_t *state)
     state->num_animations -= completed_animations;
 }
 
+bool layer_needs_draw(saver_state_t *state, const layer_type_t type)
+{
+    if (state->dirty_layers & LAYER_BACKGROUND) {
+        // Special case: if the background needs to be drawn, everything on top of it
+        // needs to as well.
+        return true;
+    }
+
+    return (state->dirty_layers & type);
+}
+
+void set_layer_needs_draw(saver_state_t *state, const layer_type_t type, bool needs_draw)
+{
+    if (needs_draw) {
+        state->dirty_layers |= type;
+    } else {
+        state->dirty_layers &= ~type;
+    }
+}
+
 RsvgHandle* load_svg_for_resource_path(const char *resource_path)
 {
     GError *error = NULL;
@@ -186,12 +215,15 @@ RsvgHandle* load_svg_for_resource_path(const char *resource_path)
     return handle;
 }
 
-void draw_background(saver_state_t *state)
+void draw_background(saver_state_t *state, double x, double y, double width, double height)
 {
     // Draw background
     cairo_t *cr = state->ctx;
+    cairo_save(cr);
     cairo_set_source_rgba(cr, (state->background_redshift / 1.5), 0.0, 0.0, 1.0);
-    cairo_paint(cr);
+    cairo_rectangle(cr, x, y, width, height);
+    cairo_fill(cr);
+    cairo_restore(cr);
 }
 
 void draw_logo(saver_state_t *state)
@@ -225,6 +257,8 @@ void draw_logo(saver_state_t *state)
     rsvg_handle_render_cairo(state->logo_svg_handle, cr);
 
     cairo_restore(cr);
+
+    set_layer_needs_draw(state, LAYER_LOGO, false);
 }
 
 void draw_password_field(saver_state_t *state)
@@ -267,8 +301,14 @@ void draw_password_field(saver_state_t *state)
     }
 
     // Draw status text
-    cairo_move_to(cr, spinner_width + field_x, field_y - line_height - field_padding);
-    pango_cairo_show_layout(cr, state->pango_layout);
+    if (layer_needs_draw(state, LAYER_PROMPT) || state->is_processing) {
+        const double y_position = field_y - line_height - field_padding;
+        draw_background(state, field_x, y_position, state->canvas_width - field_x, line_height);
+        cairo_move_to(cr, spinner_width + field_x, y_position);
+        pango_cairo_show_layout(cr, state->pango_layout);
+
+        set_layer_needs_draw(state, LAYER_PROMPT, false);
+    }
 
     // Draw processing indicator
     if (state->is_processing) {
@@ -292,47 +332,58 @@ void draw_password_field(saver_state_t *state)
     }
 
     // Draw password asterisks
+    const double cursor_padding_x = 10.0;
     if (state->asterisk_svg_handle == NULL) {
         state->asterisk_svg_handle = load_svg_for_resource_path("/resources/asterisk.svg");
     }
 
-    const double cursor_padding_x = 10.0;
-    double cursor_offset_x = 0.0;
-
     RsvgDimensionData dimensions;
     rsvg_handle_get_dimensions(state->asterisk_svg_handle, &dimensions);
     
-    double asterisk_height = cursor_height - 20.0;
-    double scale_factor = (asterisk_height / dimensions.height);
-    double scaled_width = (dimensions.width * scale_factor);
+    const double asterisk_height = cursor_height - 20.0;
+    const double scale_factor = (asterisk_height / dimensions.height);
+    const double scaled_width = (dimensions.width * scale_factor);
+    const double asterisk_width = (scaled_width + cursor_padding_x);
+    const unsigned int num_asterisks = strlen(state->password_buffer);
 
-    // Asterisks are all rendered in a single group so their opacity can change (password_opacity)
-    cairo_push_group(cr);
-    for (unsigned i = 0; i < strlen(state->password_buffer); i++) {
+    if (layer_needs_draw(state, LAYER_PASSWORD)) {
+        // Draw background first
+        draw_background(state, field_x, field_y - (field_padding / 2.0), 
+                        (asterisk_width * num_asterisks), cursor_height + field_padding);
+
+        // Asterisks are all rendered in a single group so their opacity can change (password_opacity)
+        cairo_push_group(cr);
+        double cursor_offset_x = 0.0;
+        for (unsigned i = 0; i < num_asterisks; i++) {
+            cairo_save(cr);
+            cairo_translate(cr, field_x + cursor_offset_x, field_y + ((cursor_height - asterisk_height) / 2.0));
+            cairo_scale(cr, scale_factor, scale_factor);
+            rsvg_handle_render_cairo(state->asterisk_svg_handle, cr);
+            cairo_restore(cr);
+
+            cursor_offset_x += asterisk_width;
+        }
+
+        cairo_pattern_t *asterisk_pattern = cairo_pop_group(cr);
+
         cairo_save(cr);
-        cairo_translate(cr, field_x + cursor_offset_x, field_y + ((cursor_height - asterisk_height) / 2.0));
-        cairo_scale(cr, scale_factor, scale_factor);
-        rsvg_handle_render_cairo(state->asterisk_svg_handle, cr);
+        cairo_set_source(cr, asterisk_pattern);
+        cairo_paint_with_alpha(cr, state->password_opacity);
         cairo_restore(cr);
+        cairo_pattern_destroy(asterisk_pattern);
 
-        cursor_offset_x += scaled_width + cursor_padding_x;
+        set_layer_needs_draw(state, LAYER_PASSWORD, false);
     }
 
-    cairo_pattern_t *asterisk_pattern = cairo_pop_group(cr);
-
-    cairo_save(cr);
-    cairo_set_source(cr, asterisk_pattern);
-    cairo_paint_with_alpha(cr, state->password_opacity);
-    cairo_restore(cr);
-    cairo_pattern_destroy(asterisk_pattern);
-
     // Draw cursor
+    const double x_offset = (num_asterisks * asterisk_width);
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, MIN(state->password_opacity, state->cursor_opacity));
     if (!state->is_processing) {
-        cairo_rectangle(cr, field_x + cursor_offset_x, field_y, cursor_width, cursor_height);
+        draw_background(state, field_x + x_offset, field_y, state->canvas_width, cursor_height);
+        cairo_rectangle(cr, field_x + x_offset, field_y, cursor_width, cursor_height);
     } else {
         // Fill asterisks
-        cairo_rectangle(cr, field_x, field_y, cursor_offset_x, cursor_height);
+        cairo_rectangle(cr, field_x, field_y, x_offset, cursor_height);
     }
     cairo_fill(cr);
 }

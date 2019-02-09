@@ -124,6 +124,8 @@ static void handle_key_event(saver_state_t *state, XKeyEvent *event)
             password_buf[length + 1] = '\0';
         }
     }
+
+    set_layer_needs_draw(state, LAYER_PASSWORD, true);
 }
 
 static int poll_events(saver_state_t *state)
@@ -256,6 +258,7 @@ void callback_prompt_user(const char *prompt, void *context)
     set_password_prompt(state, prompt);
     state->input_allowed = true;
     state->is_processing = false;
+    set_layer_needs_draw(state, LAYER_PROMPT, true);
 }
 
 void callback_authentication_result(int result, void *context)
@@ -281,9 +284,18 @@ static void update(saver_state_t *state)
 
 static void draw(saver_state_t *state)
 {
-    draw_background(state);
-    draw_logo(state);
+    if (layer_needs_draw(state, LAYER_BACKGROUND)) {
+        draw_background(state, 0, 0, state->canvas_width, state->canvas_height);
+    }
+
+    if (layer_needs_draw(state, LAYER_LOGO)) {
+        draw_logo(state);
+    }
+
     draw_password_field(state);
+
+    // Automatically reset this after every draw call
+    set_layer_needs_draw(state, LAYER_BACKGROUND, false);
 }
 
 static int runloop(cairo_surface_t *surface)
