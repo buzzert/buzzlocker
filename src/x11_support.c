@@ -6,46 +6,89 @@
 
 #include "x11_support.h"
 
+#include <X11/extensions/Xrandr.h> 
 #include <stdio.h>
 #include <stdlib.h>
 
 static Window __window = { 0 };
 static Display *__display = NULL;
 
-static Window get_window_from_environment_or_make_one(Display *display, int width, int height)
+static void x11_get_display_bounds_w(Window window, unsigned int monitor_num, x11_display_bounds_t *out_bounds);
+
+static Window get_window_from_environment_or_make_one(Display *display, int *out_width, int *out_height)
 {
     Window window;
 
+    Window root_window = DefaultRootWindow(__display);
     const char *env_window = getenv("XSCREENSAVER_WINDOW");
     if (env_window != NULL && env_window[0] != 0) {
         char *endptr = NULL;
         unsigned long long number = strtoull(env_window, &endptr, 0);
-        window = (Window)number;
-    } else {
-        // Presumably this is for debugging
-        Window root_window = DefaultRootWindow(__display);
-        window = XCreateSimpleWindow(
-                display,        // display
-                root_window,    // parent window
-                0, 0,           // x, y
-                width,          // width
-                height,         // height
-                0,              // border_width
-                0,              // border
-                0               // background
-        );
+        root_window = (Window)number;
     }
 
+    // Figure out which monitor this is supposed to go on
+    const unsigned int preferred_monitor = get_preferred_monitor_num();
+    x11_display_bounds_t bounds;
+    x11_get_display_bounds_w(root_window, preferred_monitor, &bounds);
+
+    window = XCreateSimpleWindow(
+            display,        // display
+            root_window,    // parent window
+            bounds.x,       // x 
+            bounds.y,       // y
+            bounds.width,   // width
+            bounds.height,  // height
+            0,              // border_width
+            0,              // border
+            0               // background
+    );
+
+    *out_width = bounds.width;
+    *out_height = bounds.height;
     return window;
 }
 
-void x11_get_display_bounds(int *width, int *height)
+void x11_get_display_bounds(unsigned int monitor_num, x11_display_bounds_t *out_bounds)
 {
-    *width = DisplayWidth(__display, DefaultScreen(__display));
-    *height = DisplayHeight(__display, DefaultScreen(__display));
+    x11_get_display_bounds_w(__window, monitor_num, out_bounds);
 }
 
-cairo_surface_t* x11_helper_acquire_cairo_surface(int width, int height)
+static void x11_get_display_bounds_w(Window window, unsigned int monitor_num, x11_display_bounds_t *out_bounds)
+{
+    int num_monitors = 0;
+    XRRMonitorInfo *monitor_infos = XRRGetMonitors(__display, window, True, &num_monitors);
+    if (num_monitors == 0) {
+        fprintf(stderr, "FATAL: Couldn't get monitor info from XRandR!\n");
+        exit(1);
+    }
+
+    unsigned int idx = monitor_num;
+    if (idx > num_monitors) {
+        fprintf(stderr, "WARNING: Specified monitor number is greater than the number of connected monitors!\n");
+        idx = 0;
+    }
+
+    XRRMonitorInfo *monitor = &monitor_infos[idx];
+    out_bounds->x = monitor->x;
+    out_bounds->y = monitor->y;
+    out_bounds->width = monitor->width;
+    out_bounds->height = monitor->height;
+}
+
+unsigned int get_preferred_monitor_num()
+{
+    const char *preferred_monitor = getenv("BUZZLOCKER_MONITOR_NUM");
+    if (preferred_monitor != NULL && preferred_monitor[0] != 0) {
+        char *endptr = NULL;
+        unsigned long int result = strtoul(preferred_monitor, &endptr, 0);
+        return result;
+    }
+
+    return 0;
+}
+
+cairo_surface_t* x11_helper_acquire_cairo_surface()
 {
     __display = XOpenDisplay(NULL);
     if (__display == NULL) {
@@ -54,7 +97,8 @@ cairo_surface_t* x11_helper_acquire_cairo_surface(int width, int height)
     }
 
     // Create (or get) window
-    __window = get_window_from_environment_or_make_one(__display, width, height);
+    int width, height;
+    __window = get_window_from_environment_or_make_one(__display, &width, &height);
 
     // Enable key events
     XSelectInput(__display, __window, ButtonPressMask | KeyPressMask | StructureNotifyMask);

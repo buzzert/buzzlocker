@@ -17,9 +17,6 @@
 
 static const int kXSecureLockCharFD = 0;
 
-static const int kDefaultWidth = 1024;
-static const int kDefaultHeight = 768;
-
 static const char *kDefaultFont = "Input Mono 22";
 
 static inline saver_state_t* saver_state(void *c)
@@ -326,7 +323,10 @@ static int runloop(cairo_surface_t *surface)
     };
     schedule_animation(&state, logo_animation);
 
-    x11_get_display_bounds(&state.canvas_width, &state.canvas_height);
+    x11_display_bounds_t bounds;
+    x11_get_display_bounds(get_preferred_monitor_num(), &bounds);
+    state.canvas_width = bounds.width;
+    state.canvas_height = bounds.height;
 
     // Docs say this must be called whenever the size of the window changes
     cairo_xlib_surface_set_size(surface, state.canvas_width, state.canvas_height);
@@ -370,10 +370,7 @@ static int runloop(cairo_surface_t *surface)
 
 int main(int argc, char **argv)
 {
-    int default_width = kDefaultWidth;
-    int default_height = kDefaultHeight;
-
-    cairo_surface_t *surface = x11_helper_acquire_cairo_surface(default_width, default_height);
+    cairo_surface_t *surface = x11_helper_acquire_cairo_surface();
     if (surface == NULL) {
         fprintf(stderr, "Error creating cairo surface\n");
         exit(1);

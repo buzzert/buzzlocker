@@ -38,4 +38,8 @@ XSECURELOCK_AUTH=/usr/local/bin/auth_buzzlocker xsecurelock
 
 So every time you run `xsecurelock` by itself, it will use buzzlocker as the GUI.
 
+## Configuration
+If you have multiple monitors, buzzlocker will appear only on whatever the primary monitor is (according 
+to XRandR). If you want to override this behavior, set the environment variable `BUZZLOCKER_MONITOR_NUM`
+to whichever monitor you wish to have buzzlocker appear on. 
 

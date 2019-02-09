@@ -14,6 +14,7 @@ sources = [
 
 dependencies = [
   dependency('x11'),
+  dependency('xrandr'),
   dependency('cairo'),
   dependency('librsvg-2.0'),
   dependency('pangocairo'),
