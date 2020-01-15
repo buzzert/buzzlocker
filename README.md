@@ -33,7 +33,7 @@ So you might want to do:
 
 If you want to make it permanent, edit `/etc/environment` to include this line:
 ```
-XSECURELOCK_AUTH=/usr/local/bin/auth_buzzlocker xsecurelock
+XSECURELOCK_AUTH=/usr/local/bin/auth_buzzlocker
 ```
 
 So every time you run `xsecurelock` by itself, it will use buzzlocker as the GUI.
