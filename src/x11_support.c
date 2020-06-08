@@ -15,9 +15,9 @@ static Display *__display = NULL;
 
 static void x11_get_display_bounds_w(Window window, unsigned int monitor_num, x11_display_bounds_t *out_bounds);
 
-static Window get_window_from_environment_or_make_one(Display *display, int *out_width, int *out_height)
+static void get_window_from_environment_or_make_one(Window *window, Display *display, int *out_width, int *out_height)
 {
-    Window window;
+    Window parent_window;
 
     Window root_window = DefaultRootWindow(__display);
     const char *env_window = getenv("XSCREENSAVER_WINDOW");
@@ -25,6 +25,13 @@ static Window get_window_from_environment_or_make_one(Display *display, int *out
         char *endptr = NULL;
         unsigned long long number = strtoull(env_window, &endptr, 0);
         root_window = (Window)number;
+
+        // Get parent window
+        unsigned int unused_num_children = 0;
+        Window unused_root, *unused_children = NULL;
+        XQueryTree(display, root_window, &unused_root, &parent_window, &unused_children, &unused_num_children);
+    } else {
+        parent_window = root_window;
     }
 
     // Figure out which monitor this is supposed to go on
@@ -32,9 +39,9 @@ static Window get_window_from_environment_or_make_one(Display *display, int *out
     x11_display_bounds_t bounds;
     x11_get_display_bounds_w(root_window, preferred_monitor, &bounds);
 
-    window = XCreateSimpleWindow(
+    *window = XCreateSimpleWindow(
             display,        // display
-            root_window,    // parent window
+            parent_window,  // parent window
             bounds.x,       // x 
             bounds.y,       // y
             bounds.width,   // width
@@ -46,7 +53,6 @@ static Window get_window_from_environment_or_make_one(Display *display, int *out
 
     *out_width = bounds.width;
     *out_height = bounds.height;
-    return window;
 }
 
 void x11_get_display_bounds(unsigned int monitor_num, x11_display_bounds_t *out_bounds)
@@ -98,7 +104,7 @@ cairo_surface_t* x11_helper_acquire_cairo_surface()
 
     // Create (or get) window
     int width, height;
-    __window = get_window_from_environment_or_make_one(__display, &width, &height);
+    get_window_from_environment_or_make_one(&__window, __display, &width, &height);
 
     // Enable key events
     XSelectInput(__display, __window, ButtonPressMask | KeyPressMask | StructureNotifyMask);
@@ -109,6 +115,7 @@ cairo_surface_t* x11_helper_acquire_cairo_surface()
     // Create cairo surface
     int screen = DefaultScreen(__display);
     Visual *visual = DefaultVisual(__display, screen);
+
     cairo_surface_t *surface = cairo_xlib_surface_create(
             __display, 
             __window,
