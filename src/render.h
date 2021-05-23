@@ -18,6 +18,7 @@
 #define kMaxAnimations 32
 #define kMaxPasswordLength 128
 #define kMaxPromptLength   128
+#define kMaxTimers         16
 
 typedef unsigned animation_key_t;
 #define ANIM_KEY_NOEXIST (kMaxAnimations + 1)
@@ -28,6 +29,15 @@ typedef enum {
     LAYER_LOGO           = 1 << 2,
     LAYER_PASSWORD       = 1 << 3,
 } layer_type_t;
+
+
+typedef unsigned int timer_id;
+typedef void (*timer_callback_t)(void *context);
+typedef struct {
+    bool                    active;
+    anim_time_interval_t    exec_time;
+    timer_callback_t        callback;
+} saver_timer_t;
 
 typedef struct {
     cairo_t                *ctx;
@@ -53,6 +63,7 @@ typedef struct {
     bool                    is_processing;
     bool                    is_authenticated;
 
+    timer_id                show_spinner_timer;
     RsvgHandle             *spinner_svg_handle;
     animation_key_t         spinner_anim_key;
 
@@ -62,6 +73,8 @@ typedef struct {
 
     animation_t             animations[kMaxAnimations];
     unsigned                num_animations;
+
+    saver_timer_t           timers[kMaxTimers];
 
     layer_type_t            dirty_layers;
 

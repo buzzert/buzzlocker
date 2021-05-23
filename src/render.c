@@ -35,6 +35,7 @@ GBytes* get_data_for_resource(const char *resource_path)
 
 void set_password_prompt(saver_state_t *state, const char *prompt)
 {
+    fprintf(stderr, "Prompt: %s\n", prompt);
     strncpy(state->password_prompt, prompt, kMaxPromptLength - 1);
 }
 

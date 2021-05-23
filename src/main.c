@@ -37,14 +37,19 @@ static void ending_animation_completed(struct animation_t *animation, void *cont
 static void authentication_accepted(saver_state_t *state);
 static void authentication_rejected(saver_state_t *state);
 
+static timer_id push_timer(saver_state_t *state, saver_timer_t *timer);
+void cancel_timer(saver_state_t *state, timer_id timer);
+
 static void update(saver_state_t *state);
 static void draw(saver_state_t *state);
+static void timers(saver_state_t *state);
 static int runloop(cairo_surface_t *surface);
 
 void callback_show_info(const char *info_msg, void *context);
 void callback_show_error(const char *error_msg, void *context);
 void callback_prompt_user(const char *prompt, void *context);
 void callback_authentication_result(int result, void *context);
+void callback_show_auth_progress(void *context);
 
 /*
  * Event handling
@@ -177,7 +182,7 @@ static void poll_events(saver_state_t *state)
         // Reset cursor flash animation
         animation_t *cursor_anim = get_animation_for_key(state, state->cursor_anim_key);
         if (cursor_anim) {
-            cursor_anim->start_time = anim_now() + 0.3;
+            cursor_anim->start_time = anim_now() + 0.1;
             cursor_anim->direction = OUT;
         }
     }
@@ -200,19 +205,13 @@ static void accept_password(saver_state_t *state)
     auth_attempt_authentication(state->auth_handle, response);
 
     // Block input until we hear back from the auth thread
-    state->is_processing = true;
     state->input_allowed = false;
 
-    // Spinner animation
-    if (state->spinner_anim_key == ANIM_KEY_NOEXIST) {
-        state->spinner_anim_key = schedule_animation(state, (animation_t) {
-            .type = ASpinnerAnimation,
-            .anim.spinner_anim = { 0 }
-        });
-    }
-
-    // Update prompt
-    set_password_prompt(state, "Authenticating...");
+    // Schedule a timer to show the "Authenticating..." UI after some time 
+    saver_timer_t timer;
+    timer.exec_time = anim_now() + 0.5;
+    timer.callback = callback_show_auth_progress;
+    state->show_spinner_timer = push_timer(state, &timer);
 }
 
 static void ending_animation_completed(struct animation_t *animation, void *context)
@@ -223,6 +222,9 @@ static void ending_animation_completed(struct animation_t *animation, void *cont
 
 static void authentication_accepted(saver_state_t *state)
 {
+    // Cancel timer to show spinner
+    cancel_timer(state, state->show_spinner_timer);
+
     state->is_processing = false;
     set_password_prompt(state, "Welcome");
     clear_password(state);
@@ -288,6 +290,51 @@ void callback_authentication_result(int result, void *context)
     }
 }
 
+void callback_show_auth_progress(void *context)
+{
+    saver_state_t *state = saver_state(context);
+
+    // Spinner animation
+    state->is_processing = true;
+    if (state->spinner_anim_key == ANIM_KEY_NOEXIST) {
+        state->spinner_anim_key = schedule_animation(state, (animation_t) {
+            .type = ASpinnerAnimation,
+            .anim.spinner_anim = { 0 }
+        });
+    }
+
+    // Update prompt
+    set_password_prompt(state, "Authenticating...");
+}
+
+/*
+ * Timers
+ */
+
+timer_id push_timer(saver_state_t *state, saver_timer_t *timer)
+{
+    unsigned int slot = 0;
+    for (unsigned int i = 0; i < kMaxTimers; i++) {
+        saver_timer_t *timer_slot = &state->timers[i];
+        if (timer_slot->active == false) {
+            slot = i;
+            timer->active = true;
+            memcpy(timer_slot, timer, sizeof (saver_timer_t));
+            
+            break;
+        }
+    }
+
+    return slot;
+}
+
+void cancel_timer(saver_state_t *state, timer_id timerid)
+{
+    saver_timer_t *timer = &state->timers[timerid];
+    timer->active = false;
+}
+
+
 /*
  * Main drawing/update routines
  */
@@ -312,6 +359,18 @@ static void draw(saver_state_t *state)
 
     // Automatically reset this after every draw call
     set_layer_needs_draw(state, LAYER_BACKGROUND, false);
+}
+
+static void timers(saver_state_t *state)
+{
+    anim_time_interval_t now = anim_now();
+    for (unsigned int i = 0; i < kMaxTimers; i++) {
+        saver_timer_t *timer = &state->timers[i];
+        if (timer->active && now > timer->exec_time) {
+            timer->callback((struct saver_state_t *)state);
+            timer->active = false;
+        }
+    }
 }
 
 static int runloop(cairo_surface_t *surface)
@@ -383,6 +442,8 @@ static int runloop(cairo_surface_t *surface)
 
         cairo_paint(cr);
         cairo_surface_flush(surface);
+
+        timers(&state);
 
         nanosleep(&sleep_time, NULL);
     }
