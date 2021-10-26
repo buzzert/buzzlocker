@@ -67,7 +67,14 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
         const double logo_duration = 0.6;
         const double progress = anim_progress_ease(anim, logo_duration, anim_qubic_ease_out);
 
-        state->logo_fill_progress = progress;
+        if (anim->direction == IN) {
+            state->logo_fill_height = progress;
+            state->logo_fill_width = 1.0;
+        } else {
+            state->logo_fill_width = progress;
+            state->logo_fill_height = 1.0;
+        }
+
         state->password_opacity = progress;
         set_layer_needs_draw(state, LAYER_LOGO, true);
         if (anim->direction == OUT) {
@@ -238,8 +245,9 @@ void draw_logo(saver_state_t *state)
     // Draw bar background
     cairo_save(cr);
     cairo_set_source_rgb(cr, (208.0 / 255.0), (69.0 / 255.0), (255.0 / 255.0));
-    double fill_height = (state->canvas_height * state->logo_fill_progress);
-    cairo_rectangle(cr, 0, 0, kLogoBackgroundWidth, fill_height);
+    double fill_height = (state->canvas_height * state->logo_fill_height);
+    double fill_width = (kLogoBackgroundWidth * state->logo_fill_width);
+    cairo_rectangle(cr, 0, 0, fill_width, fill_height);
     cairo_fill(cr);
 
     // Common color -- transparent for logo

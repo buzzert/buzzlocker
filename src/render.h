@@ -49,7 +49,8 @@ typedef struct {
     double                  background_redshift;
 
     RsvgHandle             *logo_svg_handle;
-    double                  logo_fill_progress;
+    double                  logo_fill_width;
+    double                  logo_fill_height;
 
     RsvgHandle             *asterisk_svg_handle;
 
