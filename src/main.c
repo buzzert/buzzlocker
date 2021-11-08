@@ -182,7 +182,7 @@ static void poll_events(saver_state_t *state)
         // Reset cursor flash animation
         animation_t *cursor_anim = get_animation_for_key(state, state->cursor_anim_key);
         if (cursor_anim) {
-            cursor_anim->start_time = anim_now() + 0.1;
+            cursor_anim->start_time = anim_now() + 0.5;
             cursor_anim->direction = OUT;
         }
     }

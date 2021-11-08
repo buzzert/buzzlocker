@@ -48,9 +48,13 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
         if (ca->cursor_animating) {
             if (!state->is_processing) {
                 const double fade_duration = 0.5;
-                const double progress = anim_progress(anim, fade_duration);
+                const double progress = anim_progress_ease(anim, fade_duration, anim_qubic_ease_out);
 
-                state->cursor_opacity = progress;
+                if (anim->direction == OUT) {
+                    state->cursor_opacity = progress;
+                } else {
+                    state->cursor_opacity = 1.0;
+                }
 
                 if (anim_complete(anim, progress)) {
                     anim->direction = !anim->direction;
