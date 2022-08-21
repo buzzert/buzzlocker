@@ -20,6 +20,8 @@ static const int kXSecureLockCharFD = 0;
 static const char *kDefaultFont = "Input Mono 22";
 static const char *kClockFont = "Sans Italic 20";
 
+static const char *kEnableClockEnvVar = "BUZZSAVER_ENABLE_CLOCK";
+
 static inline saver_state_t* saver_state(void *c)
 {
     return (saver_state_t *)c;
@@ -435,12 +437,12 @@ void print_usage(const char *progname)
     fprintf(stderr, "buzzert's screen locker for XSecureLock.\n\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -h   Show this help message.\n");
-    fprintf(stderr, "  -c   Show a clock on the lock screen.\n");
+    fprintf(stderr, "  -c   Show a clock on the lock screen (%s).\n", kEnableClockEnvVar);
 }
 
 int main(int argc, char **argv)
 {
-    bool enable_clock = false;
+    bool enable_clock = getenv(kEnableClockEnvVar) != NULL;
 
     int opt;
     while ((opt = getopt(argc, argv, "ch")) != -1) {
