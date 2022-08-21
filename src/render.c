@@ -80,7 +80,7 @@ static void update_single_animation(saver_state_t *state, animation_t *anim)
         }
 
         state->password_opacity = progress;
-        set_layer_needs_draw(state, LAYER_LOGO, true);
+        set_layer_needs_draw(state, LAYER_LOGO | LAYER_CLOCK, true);
         if (anim->direction == OUT) {
             // When transitioning OUT, background essentially draws over the logo as it wipes out
             set_layer_needs_draw(state, LAYER_BACKGROUND, true);
@@ -272,6 +272,28 @@ void draw_logo(saver_state_t *state)
     cairo_restore(cr);
 
     set_layer_needs_draw(state, LAYER_LOGO, false);
+}
+
+void draw_clock(saver_state_t *state) 
+{
+    cairo_t *cr = state->ctx;
+
+    pango_layout_set_text(state->pango_layout, state->clock_str, -1);
+    pango_layout_set_font_description(state->pango_layout, state->clock_font);
+
+    int width, height;
+    pango_layout_get_pixel_size(state->pango_layout, &width, &height);
+
+    cairo_save(cr);
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.5);
+    cairo_move_to(cr, 
+        /* x: */ (kLogoBackgroundWidth - width) / 2,
+        /* y: */ 150
+    );
+    pango_cairo_show_layout(cr, state->pango_layout);
+    cairo_restore(cr);
+
+    set_layer_needs_draw(state, LAYER_CLOCK, false);
 }
 
 void draw_password_field(saver_state_t *state)

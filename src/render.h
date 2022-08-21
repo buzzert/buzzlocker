@@ -18,6 +18,7 @@
 #define kMaxAnimations 32
 #define kMaxPasswordLength 128
 #define kMaxPromptLength   128
+#define kMaxClockLength    16
 #define kMaxTimers         16
 
 typedef unsigned animation_key_t;
@@ -28,6 +29,7 @@ typedef enum {
     LAYER_PROMPT         = 1 << 1,
     LAYER_LOGO           = 1 << 2,
     LAYER_PASSWORD       = 1 << 3,
+    LAYER_CLOCK          = 1 << 4,
 } layer_type_t;
 
 
@@ -45,6 +47,7 @@ typedef struct {
 
     PangoLayout            *pango_layout;
     PangoFontDescription   *status_font;
+    PangoFontDescription   *clock_font;
 
     double                  background_redshift;
 
@@ -71,6 +74,10 @@ typedef struct {
     char                    password_prompt[kMaxPromptLength];
     char                    password_buffer[kMaxPasswordLength];
     double                  password_opacity;
+
+    bool                    clock_enabled;
+    char                    clock_str[kMaxClockLength];
+    timer_id                clock_update_timer_id;
 
     animation_t             animations[kMaxAnimations];
     unsigned                num_animations;
@@ -102,6 +109,9 @@ void draw_background(saver_state_t *state, double x, double y, double width, dou
 
 // The purple sidebar
 void draw_logo(saver_state_t *state);
+
+// The clock, colocated in the sidebar
+void draw_clock(saver_state_t *state);
 
 // The status string and paassword field
 void draw_password_field(saver_state_t *state);

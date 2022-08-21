@@ -18,6 +18,7 @@
 static const int kXSecureLockCharFD = 0;
 
 static const char *kDefaultFont = "Input Mono 22";
+static const char *kClockFont = "Sans Italic 20";
 
 static inline saver_state_t* saver_state(void *c)
 {
@@ -38,18 +39,20 @@ static void authentication_accepted(saver_state_t *state);
 static void authentication_rejected(saver_state_t *state);
 
 static timer_id push_timer(saver_state_t *state, saver_timer_t *timer);
+void reset_timer(saver_state_t *state, timer_id timerid, anim_time_interval_t duration);
 void cancel_timer(saver_state_t *state, timer_id timer);
 
 static void update(saver_state_t *state);
 static void draw(saver_state_t *state);
 static void timers(saver_state_t *state);
-static int runloop(cairo_surface_t *surface);
+static int runloop(saver_state_t *state);
 
 void callback_show_info(const char *info_msg, void *context);
 void callback_show_error(const char *error_msg, void *context);
 void callback_prompt_user(const char *prompt, void *context);
 void callback_authentication_result(int result, void *context);
 void callback_show_auth_progress(void *context);
+void callback_update_clock(void *context);
 
 /*
  * Event handling
@@ -307,6 +310,19 @@ void callback_show_auth_progress(void *context)
     set_password_prompt(state, "Authenticating...");
 }
 
+void callback_update_clock(void *context)
+{
+    saver_state_t *state = saver_state(context);
+
+    time_t n_time = time(NULL);
+    struct tm *now = localtime(&n_time);
+    snprintf(state->clock_str, kMaxClockLength, "%.2d:%.2d:%.2d", 
+        now->tm_hour, now->tm_min, now->tm_sec);
+
+    set_layer_needs_draw(state, LAYER_CLOCK | LAYER_LOGO, true);
+    reset_timer(state, state->clock_update_timer_id, 1.0);
+}
+
 /*
  * Timers
  */
@@ -326,6 +342,13 @@ timer_id push_timer(saver_state_t *state, saver_timer_t *timer)
     }
 
     return slot;
+}
+
+void reset_timer(saver_state_t *state, timer_id timerid, anim_time_interval_t duration)
+{
+    saver_timer_t *timer = &state->timers[timerid];
+    timer->exec_time = anim_now() + duration;
+    timer->active = true;
 }
 
 void cancel_timer(saver_state_t *state, timer_id timerid)
@@ -355,6 +378,10 @@ static void draw(saver_state_t *state)
         draw_logo(state);
     }
 
+    if (state->clock_enabled && layer_needs_draw(state, LAYER_CLOCK)) {
+        draw_clock(state);
+    }
+
     draw_password_field(state);
 
     // Automatically reset this after every draw call
@@ -367,19 +394,85 @@ static void timers(saver_state_t *state)
     for (unsigned int i = 0; i < kMaxTimers; i++) {
         saver_timer_t *timer = &state->timers[i];
         if (timer->active && now > timer->exec_time) {
-            timer->callback((struct saver_state_t *)state);
             timer->active = false;
+            timer->callback((struct saver_state_t *)state);
         }
     }
 }
 
-static int runloop(cairo_surface_t *surface)
+static int runloop(saver_state_t *state)
 {
+    // Main run loop
+    const int frames_per_sec = 60;
+    const long sleep_nsec = (1.0 / frames_per_sec) * 1000000000;
+    struct timespec sleep_time = { 0, sleep_nsec };
+    while (!state->is_authenticated) {
+        update(state);
+
+        cairo_push_group(state->ctx);
+        
+        draw(state);
+        
+        cairo_pop_group_to_source(state->ctx);
+
+        cairo_paint(state->ctx);
+        cairo_surface_flush(state->surface);
+
+        timers(state);
+
+        nanosleep(&sleep_time, NULL);
+    }
+
+    // Cleanup
+    cairo_destroy(state->ctx);
+
+    return EXIT_SUCCESS;
+}
+
+void print_usage(const char *progname) 
+{
+    fprintf(stderr, "Usage: %s [OPTION]\n", progname);
+    fprintf(stderr, "buzzert's screen locker for XSecureLock.\n\n");
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  -h   Show this help message.\n");
+    fprintf(stderr, "  -c   Show a clock on the lock screen.\n");
+}
+
+int main(int argc, char **argv)
+{
+    bool enable_clock = false;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "ch")) != -1) {
+        switch (opt) {
+            case 'c':
+                enable_clock = true;
+                break;
+            case 'h':
+                print_usage(argv[0]);
+                return EXIT_SUCCESS;
+            default:
+                break;
+        }
+    }
+    
+    cairo_surface_t *surface = x11_helper_acquire_cairo_surface();
+    if (surface == NULL) {
+        fprintf(stderr, "Error creating cairo surface\n");
+        exit(1);
+    }
+
+    // Make it so reading from the xsecurelock file descriptor doesn't block
+    int flags = fcntl(kXSecureLockCharFD, F_GETFL, 0);
+    fcntl(kXSecureLockCharFD, F_SETFL, flags | O_NONBLOCK);
+
+    // Initialize Cairo
     cairo_t *cr = cairo_create(surface);
 
     // Initialize pango context
     PangoLayout *pango_layout = pango_cairo_create_layout(cr);
     PangoFontDescription *status_font = pango_font_description_from_string(kDefaultFont);
+    PangoFontDescription *clock_font = pango_font_description_from_string(kClockFont);
 
     saver_state_t state = { 0 };
     state.ctx = cr;
@@ -387,6 +480,8 @@ static int runloop(cairo_surface_t *surface)
     state.cursor_opacity = 1.0;
     state.pango_layout = pango_layout;
     state.status_font = status_font;
+    state.clock_font = clock_font;
+    state.clock_enabled = enable_clock;
     state.input_allowed = false;
     state.is_authenticated = false;
     state.is_processing = false;
@@ -410,6 +505,15 @@ static int runloop(cairo_surface_t *surface)
     };
     schedule_animation(&state, logo_animation);
 
+    // Clock update timer
+    if (enable_clock) {
+        saver_timer_t clock_update_timer;
+        clock_update_timer.exec_time = anim_now() + 1.0;
+        clock_update_timer.callback = callback_update_clock;
+        state.clock_update_timer_id = push_timer(&state, &clock_update_timer);
+        callback_update_clock(&state);
+    }
+
     x11_display_bounds_t bounds;
     x11_get_display_bounds(get_preferred_monitor_num(), &bounds);
     state.canvas_width = bounds.width;
@@ -427,46 +531,7 @@ static int runloop(cairo_surface_t *surface)
 
     state.auth_handle = auth_begin_authentication(callbacks, &state);
 
-    // Main run loop
-    const int frames_per_sec = 60;
-    const long sleep_nsec = (1.0 / frames_per_sec) * 1000000000;
-    struct timespec sleep_time = { 0, sleep_nsec };
-    while (!state.is_authenticated) {
-        update(&state);
-
-        cairo_push_group(cr);
-        
-        draw(&state);
-        
-        cairo_pop_group_to_source(cr);
-
-        cairo_paint(cr);
-        cairo_surface_flush(surface);
-
-        timers(&state);
-
-        nanosleep(&sleep_time, NULL);
-    }
-
-    // Cleanup
-    cairo_destroy(cr);
-
-    return EXIT_SUCCESS;
-}
-
-int main(int argc, char **argv)
-{
-    cairo_surface_t *surface = x11_helper_acquire_cairo_surface();
-    if (surface == NULL) {
-        fprintf(stderr, "Error creating cairo surface\n");
-        exit(1);
-    }
-
-    // Make it so reading from the xsecurelock file descriptor doesn't block
-    int flags = fcntl(kXSecureLockCharFD, F_GETFL, 0);
-    fcntl(kXSecureLockCharFD, F_SETFL, flags | O_NONBLOCK);
-
-    int result = runloop(surface);
+    int result = runloop(&state);
 
     x11_helper_destroy_surface(surface);
     return result;
