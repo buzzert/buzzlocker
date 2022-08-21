@@ -20,7 +20,7 @@ static const int kXSecureLockCharFD = 0;
 static const char *kDefaultFont = "Input Mono 22";
 static const char *kClockFont = "Sans Italic 20";
 
-static const char *kEnableClockEnvVar = "BUZZSAVER_ENABLE_CLOCK";
+static const char *kEnableClockEnvVar = "BUZZLOCKER_ENABLE_CLOCK";
 
 static inline saver_state_t* saver_state(void *c)
 {
