@@ -106,7 +106,7 @@ cairo_surface_t* x11_helper_acquire_cairo_surface()
     int width, height;
     get_window_from_environment_or_make_one(&__window, __display, &width, &height);
 
-    // Enable key events
+    // Event mask
     XSelectInput(__display, __window, ButtonPressMask | KeyPressMask | StructureNotifyMask);
 
     // Map window to display

@@ -30,6 +30,7 @@ typedef enum {
     LAYER_LOGO           = 1 << 2,
     LAYER_PASSWORD       = 1 << 3,
     LAYER_CLOCK          = 1 << 4,
+    ALL_LAYERS           = 0xFF
 } layer_type_t;
 
 

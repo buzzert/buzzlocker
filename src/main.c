@@ -66,6 +66,9 @@ static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
     state->canvas_height = event->height;
 
     cairo_xlib_surface_set_size(state->surface, event->width, event->height);
+
+    // Mark all layers as dirty. 
+    set_layer_needs_draw(state, ALL_LAYERS, true);
 }
 
 // The following two methods are separate methods for processing input:
