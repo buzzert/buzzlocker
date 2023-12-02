@@ -270,12 +270,16 @@ static void authentication_rejected(saver_state_t *state)
 
 void callback_show_info(const char *info_msg, void *context)
 {
-    set_password_prompt(saver_state(context), info_msg);
+    saver_state_t *state = saver_state(context);
+    set_password_prompt(state, info_msg);
+    set_layer_needs_draw(state, LAYER_PROMPT, true);
 }
 
 void callback_show_error(const char *error_msg, void *context)
 {
-    set_password_prompt(saver_state(context), error_msg);
+    saver_state_t *state = saver_state(context);
+    set_password_prompt(state, error_msg);
+    set_layer_needs_draw(state, LAYER_PROMPT, true);
 }
 
 void callback_prompt_user(const char *prompt, void *context)
