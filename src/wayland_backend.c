@@ -99,15 +99,14 @@ static const struct ext_session_lock_v1_listener session_lock_listener = {
 };
 
 // Lock surface listeners  
-static void lock_surface_configure(void *data, struct ext_session_lock_surface_v1 *surface, 
+static void lock_surface_configure(void *data, struct ext_session_lock_surface_v1 *lock_surface, 
                                    uint32_t serial, uint32_t width, uint32_t height)
 {
     surface_width = width;
     surface_height = height;
     surface_configured = true;
     
-    printf("Lock surface configured: %dx%d\n", width, height);
-    ext_session_lock_surface_v1_ack_configure(surface, serial);
+    ext_session_lock_surface_v1_ack_configure(lock_surface, serial);
 
     event_t resize_event = (event_t) {
         .type = EVENT_SURFACE_SIZE_CHANGED,
@@ -249,7 +248,6 @@ static const struct wl_keyboard_listener keyboard_listener = {
 static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t capabilities)
 {
     if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD) {
-        printf("Setting up keyboard...\n");
         if (keyboard) {
             wl_keyboard_destroy(keyboard);
         }
@@ -257,13 +255,13 @@ static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t capabil
         keyboard = wl_seat_get_keyboard(seat);
         wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
     } else {
-        printf("No keyboard capability\n");
+        fprintf(stderr, "No keyboard capability\n");
     }
 }
 
 static void seat_name(void *data, struct wl_seat *seat, const char *name)
 {
-    // Seat name
+    // Not sure what to do here, I think we don't use this. 
 }
 
 static const struct wl_seat_listener seat_listener = {
@@ -275,24 +273,17 @@ static const struct wl_seat_listener seat_listener = {
 static void registry_global(void *data, struct wl_registry *registry,
                           uint32_t id, const char *interface, uint32_t version)
 {
-    printf("Registry global: %s (version %u)\n", interface, version);
-    
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
         compositor = wl_registry_bind(registry, id, &wl_compositor_interface, 4);
-        printf("Bound compositor\n");
     } else if (strcmp(interface, wl_shm_interface.name) == 0) {
         shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
-        printf("Bound shm\n");
     } else if (strcmp(interface, ext_session_lock_manager_v1_interface.name) == 0) {
         session_lock_manager = wl_registry_bind(registry, id, &ext_session_lock_manager_v1_interface, 1);
-        printf("Bound ext-session-lock-manager-v1\n");
     } else if (strcmp(interface, wl_seat_interface.name) == 0) {
         seat = wl_registry_bind(registry, id, &wl_seat_interface, 7);
-        printf("Bound seat\n");
     } else if (strcmp(interface, wl_output_interface.name) == 0) {
-        if (!output) { // Just use the first output for now
+        if (!output) { // TODO: need to check for preferred output, this just uses the first one. 
             output = wl_registry_bind(registry, id, &wl_output_interface, 3);
-            printf("Bound output\n");
         }
     }
 }
@@ -310,6 +301,7 @@ static const struct wl_registry_listener registry_listener = {
 // Shared memory helpers
 static int create_shm_file(size_t size)
 {
+    // Creates a file that lives in ram (ramfs) and has volatile backing storage. 
     int fd = memfd_create("buzzlocker-buffer", MFD_CLOEXEC);
     if (fd < 0) {
         return -1;
@@ -380,16 +372,13 @@ static bool wayland_init(void)
     }
     
     // Create the session lock
-    printf("Creating session lock...\n");
     session_lock = ext_session_lock_manager_v1_lock(session_lock_manager);
     if (!session_lock) {
         fprintf(stderr, "Failed to create session lock\n");
         return false;
     }
     
-    printf("Adding session lock listener...\n");
     ext_session_lock_v1_add_listener(session_lock, &session_lock_listener, NULL);
-
     keyboard_state.context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     
     return true;
@@ -439,11 +428,10 @@ static cairo_surface_t* wayland_acquire_surface(void)
     
     // Attach buffer to surface (required before first commit)
     wl_surface_attach(surface, buffer, 0, 0);
-    wl_surface_damage_buffer(surface, 0, 0, surface_width, surface_height);
+    wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
     wl_surface_commit(surface);
     
     // Now wait for the session to be locked
-    printf("Waiting for session lock confirmation...\n");
     wl_display_roundtrip(display);
     
     if (!session_is_locked) {
@@ -507,17 +495,9 @@ static void wayland_commit_surface(void)
         return;
     }
     
-    // Force Cairo to flush and mark the surface as dirty
-    if (current_cairo_surface) {
-        cairo_surface_flush(current_cairo_surface);
-        cairo_surface_mark_dirty(current_cairo_surface);
-    }
-    
-    // Re-attach buffer before each commit (required by some compositors)
     wl_surface_attach(surface, buffer, 0, 0);
-    wl_surface_damage_buffer(surface, 0, 0, surface_width, surface_height);
-    wl_surface_commit(surface);
-    wl_display_flush(display);
+	wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
+	wl_surface_commit(surface);
 }
 
 static void wayland_destroy_surface(cairo_surface_t *cairo_surface)
