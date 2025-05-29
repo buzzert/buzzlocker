@@ -6,7 +6,8 @@
 
 #include "auth.h"
 #include "render.h"
-#include "x11_support.h"
+#include "display_server.h"
+#include "events.h"
 
 #include <fcntl.h>
 #include <stdbool.h>
@@ -27,14 +28,14 @@ static inline saver_state_t* saver_state(void *c)
     return (saver_state_t *)c;
 }
 
-static void clear_password(saver_state_t *state);
 static void accept_password(saver_state_t *state);
+static void clear_password(saver_state_t *state);
 
-static void poll_events(saver_state_t *state);
-
-static bool handle_key_event(saver_state_t *state, XKeyEvent *event);
-static void handle_xsl_key_input(saver_state_t *state, const char c);
-static void window_changed_size(saver_state_t *state, XConfigureEvent *event);
+// Make these functions available to backends
+bool handle_key_event(saver_state_t *state, XKeyEvent *event);
+void handle_xsl_key_input(saver_state_t *state, const char c);
+void window_changed_size(saver_state_t *state, XConfigureEvent *event);
+static void reset_cursor_flash_anim(saver_state_t *state);
 
 static void ending_animation_completed(struct animation_t *animation, void *context);
 static void authentication_accepted(saver_state_t *state);
@@ -44,7 +45,6 @@ static timer_id push_timer(saver_state_t *state, saver_timer_t *timer);
 void reset_timer(saver_state_t *state, timer_id timerid, anim_time_interval_t duration);
 void cancel_timer(saver_state_t *state, timer_id timer);
 
-static void update(saver_state_t *state);
 static void draw(saver_state_t *state);
 static void timers(saver_state_t *state);
 static int runloop(saver_state_t *state);
@@ -56,11 +56,43 @@ void callback_authentication_result(int result, void *context);
 void callback_show_auth_progress(void *context);
 void callback_update_clock(void *context);
 
+#define MAX_EVENTS 16
+typedef struct {
+    event_t events[MAX_EVENTS];
+    uint8_t front_idx;
+    uint8_t rear_idx;
+    uint8_t size;
+} event_queue_t;
+
+static event_queue_t event_queue = { 0 };
+
+void queue_event(event_t event)
+{
+    // Pushes to rear
+    event_queue.events[event_queue.rear_idx] = event;
+    event_queue.rear_idx = (event_queue.rear_idx + 1) % MAX_EVENTS;
+    event_queue.size += 1;
+}
+
+static bool pop_event(event_t *out_event)
+{
+    if (event_queue.size == 0) {
+        return false;
+    }
+
+    // Pops from front 
+    *out_event = event_queue.events[event_queue.front_idx];
+    event_queue.front_idx = (event_queue.front_idx + 1) % MAX_EVENTS;
+    event_queue.size -= 1;
+
+    return true;
+}
+
 /*
  * Event handling
  */
 
-static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
+void window_changed_size(saver_state_t *state, XConfigureEvent *event)
 {
     state->canvas_width = event->width;
     state->canvas_height = event->height;
@@ -71,129 +103,42 @@ static void window_changed_size(saver_state_t *state, XConfigureEvent *event)
     set_layer_needs_draw(state, ALL_LAYERS, true);
 }
 
-// The following two methods are separate methods for processing input:
-// The first one `handle_xsl_key_input` is for handling input via the XSecureLock
-// file descriptor, which basically gives us TTY keycodes. The second handles
-// input via X11, which is really only used for testing (when the locker is being
-// run inside a window during development).
-static void handle_xsl_key_input(saver_state_t *state, const char c)
+void handle_event(saver_state_t *state, event_t event)
 {
-    if (!state->input_allowed) return;
-
     char *password_buf = state->password_buffer;
-    size_t pw_len = strlen(password_buf);
-    switch (c) {
-        case '\b':      // Backspace.
-            if (pw_len > 0) {
+    const size_t pw_len = strlen(password_buf);
+
+    switch (event.type) {
+        case EVENT_KEYBOARD_BACKSPACE:
+            if (state->input_allowed && pw_len > 0) {
                 password_buf[pw_len - 1] = '\0';
             }
             break;
-        case '\177':  // Delete
+        case EVENT_KEYBOARD_RETURN:
+            if (state->input_allowed) {
+                accept_password(state);
+            }
             break;
-        case '\001':  // Ctrl-A.
-            // TODO: cursor movement
+        case EVENT_KEYBOARD_CLEAR:
+            if (state->input_allowed) {
+                clear_password(state);
+            }
             break;
-        case '\025':  // Ctrl-U.
-            clear_password(state);
-            break;
-        case 0:       // Shouldn't happen.
-        case '\033':  // Escape.
-            break;
-        case '\r':  // Return.
-        case '\n':  // Return.
-            accept_password(state);
-            break;
-        default:
-            if (pw_len + 1 < kMaxPasswordLength) {
-                password_buf[pw_len] = c;
+        case EVENT_KEYBOARD_LETTER:
+            if (state->input_allowed && pw_len + 1 < kMaxPasswordLength) {
+                password_buf[pw_len] = event.codepoint; // TODO: does not handle unicode correctly. 
                 password_buf[pw_len + 1] = '\0';
             }
             break;
-    }
-}
-
-// This input handler is only when the locker is being run in "X11 mode" for development
-// (See comment above for why this is separate)
-static bool handle_key_event(saver_state_t *state, XKeyEvent *event)
-{
-    if (!state->input_allowed) return false;
-
-    KeySym key;
-    char keybuf[8];
-    XLookupString(event, keybuf, sizeof(keybuf), &key, NULL);
-
-    bool handled = true;
-    char *password_buf = state->password_buffer;
-    size_t length = strlen(password_buf);
-    if (XK_BackSpace == key) {
-        // delete char
-        if (length > 0) {
-            password_buf[length - 1] = '\0';
-        }
-    } else if (XK_Return == key) {
-        accept_password(state);
-    } else if (strlen(keybuf) > 0) {
-        if (length + 1 < kMaxPasswordLength) {
-            password_buf[length] = keybuf[0];
-            password_buf[length + 1] = '\0';
-        }
-    } else {
-        handled = false;
-    }
-
-    return handled;
-}
-
-static void poll_events(saver_state_t *state)
-{
-    XEvent e;
-    bool handled_key_event = false;
-    const bool block_for_next_event = false;
-
-    // Via xsecurelock, take this route
-    char buf;
-    ssize_t read_res = read(kXSecureLockCharFD, &buf, 1);
-    if (read_res > 0) {
-        handle_xsl_key_input(state, buf);
-        handled_key_event = true;
-    }
-
-    // Temp: this should be handled by x11_support
-    Display *display = cairo_xlib_surface_get_display(state->surface);
-    for (;;) {
-        if (block_for_next_event || XPending(display)) {
-            // XNextEvent blocks the caller until an event arrives
-            XNextEvent(display, &e);
-        } else {
+        case EVENT_SURFACE_SIZE_CHANGED:
+            fprintf(stderr, "Got surface size changed event\n");
+            set_layer_needs_draw(state, ALL_LAYERS, true);
+        default:
             break;
-        }
-
-        switch (e.type) {
-            case ConfigureNotify:
-                window_changed_size(state, (XConfigureEvent *)&e);
-                break;
-            case ButtonPress:
-                break;
-            case KeyPress:
-                handled_key_event = handle_key_event(state, (XKeyEvent *)&e);
-                break;
-            default:
-                fprintf(stderr, "Dropping unhandled XEevent.type = %d.\n", e.type);
-                break;
-        }
     }
 
-    if (handled_key_event) {
-        // Mark password layer dirty
-        set_layer_needs_draw(state, LAYER_PASSWORD, true);
-
-        // Reset cursor flash animation
-        animation_t *cursor_anim = get_animation_for_key(state, state->cursor_anim_key);
-        if (cursor_anim) {
-            cursor_anim->start_time = anim_now() + 0.5;
-            cursor_anim->direction = OUT;
-        }
-    }
+    reset_cursor_flash_anim(state);
+    set_layer_needs_draw(state, LAYER_PASSWORD, true);
 }
 
 /*
@@ -220,6 +165,15 @@ static void accept_password(saver_state_t *state)
     timer.exec_time = anim_now() + 0.5;
     timer.callback = callback_show_auth_progress;
     state->show_spinner_timer = push_timer(state, &timer);
+}
+
+static void reset_cursor_flash_anim(saver_state_t *state) 
+{
+    animation_t *cursor_anim = get_animation_for_key(state, state->cursor_anim_key);
+    if (cursor_anim) {
+        cursor_anim->start_time = anim_now() + 0.5;
+        cursor_anim->direction = OUT;
+    }
 }
 
 static void ending_animation_completed(struct animation_t *animation, void *context)
@@ -371,10 +325,12 @@ void cancel_timer(saver_state_t *state, timer_id timerid)
  * Main drawing/update routines
  */
 
-static void update(saver_state_t *state)
+static void handle_pending_events(saver_state_t *state)
 {
-    update_animations(state);
-    poll_events(state);
+    event_t event = { 0 };
+    if (pop_event(&event)) {
+        handle_event(state, event);
+    }
 }
 
 static void draw(saver_state_t *state)
@@ -412,11 +368,11 @@ static void timers(saver_state_t *state)
 static int runloop(saver_state_t *state)
 {
     // Main run loop
-    const int frames_per_sec = 60;
-    const long sleep_nsec = (1.0 / frames_per_sec) * 1000000000;
-    struct timespec sleep_time = { 0, sleep_nsec };
+    const display_server_interface_t *interface = display_server_get_interface();
     while (!state->is_authenticated) {
-        update(state);
+        update_animations(state);
+        interface->poll_events(state);
+        handle_pending_events(state);
 
         cairo_push_group(state->ctx);
         
@@ -427,9 +383,16 @@ static int runloop(saver_state_t *state)
         cairo_paint(state->ctx);
         cairo_surface_flush(state->surface);
 
+        interface->commit_surface();
+
         timers(state);
 
-        nanosleep(&sleep_time, NULL);
+        interface->await_frame();
+    }
+
+    if (state->is_authenticated) {
+        // If we exited the main loop and we successfully authenticated, post this to our display server. 
+        interface->unlock_session();
     }
 
     // Cleanup
@@ -438,10 +401,22 @@ static int runloop(saver_state_t *state)
     return EXIT_SUCCESS;
 }
 
+unsigned int get_preferred_monitor_num()
+{
+    const char *preferred_monitor = getenv("BUZZLOCKER_MONITOR_NUM");
+    if (preferred_monitor != NULL && preferred_monitor[0] != 0) {
+        char *endptr = NULL;
+        unsigned long int result = strtoul(preferred_monitor, &endptr, 0);
+        return result;
+    }
+
+    return 0;
+}
+
 void print_usage(const char *progname) 
 {
     fprintf(stderr, "Usage: %s [OPTION]\n", progname);
-    fprintf(stderr, "buzzert's screen locker for XSecureLock.\n\n");
+    fprintf(stderr, "buzzert's screen locker for Wayland/XSecureLock.\n\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -h   Show this help message.\n");
     fprintf(stderr, "  -c   Show a clock on the lock screen (%s).\n", kEnableClockEnvVar);
@@ -465,7 +440,19 @@ int main(int argc, char **argv)
         }
     }
     
-    cairo_surface_t *surface = x11_helper_acquire_cairo_surface();
+    // Initialize display server backend
+    if (!display_server_init()) {
+        fprintf(stderr, "Error initializing display server\n");
+        exit(1);
+    }
+    
+    const display_server_interface_t *interface = display_server_get_interface();
+    if (!interface) {
+        fprintf(stderr, "Error getting display server interface\n");
+        exit(1);
+    }
+    
+    cairo_surface_t *surface = interface->acquire_surface();
     if (surface == NULL) {
         fprintf(stderr, "Error creating cairo surface\n");
         exit(1);
@@ -523,13 +510,15 @@ int main(int argc, char **argv)
         callback_update_clock(&state);
     }
 
-    x11_display_bounds_t bounds;
-    x11_get_display_bounds(get_preferred_monitor_num(), &bounds);
+    display_bounds_t bounds;
+    interface->get_display_bounds(get_preferred_monitor_num(), &bounds);
     state.canvas_width = bounds.width;
     state.canvas_height = bounds.height;
 
-    // Docs say this must be called whenever the size of the window changes
-    cairo_xlib_surface_set_size(surface, state.canvas_width, state.canvas_height);
+    // Docs say this must be called whenever the size of the window changes (X11 only)
+    if (display_server_get_type() == DISPLAY_SERVER_X11) {
+        cairo_xlib_surface_set_size(surface, state.canvas_width, state.canvas_height);
+    }
 
     auth_callbacks_t callbacks = {
         .info_handler = callback_show_info,
@@ -542,7 +531,8 @@ int main(int argc, char **argv)
 
     int result = runloop(&state);
 
-    x11_helper_destroy_surface(surface);
+    interface->destroy_surface(surface);
+    interface->cleanup();
     return result;
 }
 
