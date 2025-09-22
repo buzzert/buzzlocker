@@ -10,6 +10,7 @@
 #include "events.h"
 
 #include <cairo/cairo.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <xkbcommon/xkbcommon.h>
@@ -389,78 +390,87 @@ static cairo_surface_t* wayland_acquire_surface(void)
     if (!display || !compositor || !session_lock || !output) {
         return NULL;
     }
-    
-    // Create Wayland surface
-    surface = wl_compositor_create_surface(compositor);
-    if (!surface) {
-        return NULL;
-    }
-    
-    // Create lock surface for the output
-    lock_surface = ext_session_lock_v1_get_lock_surface(session_lock, surface, output);
-    if (!lock_surface) {
-        wl_surface_destroy(surface);
-        return NULL;
-    }
-    
-    ext_session_lock_surface_v1_add_listener(lock_surface, &lock_surface_listener, NULL);
 
-    // Wait for configure event to get the correct size
-    wl_display_roundtrip(display);
+    bool success = false;
+    cairo_surface_t *cairo_surface = NULL;
     
-    if (!surface_configured) {
-        fprintf(stderr, "Surface not configured after roundtrip\n");
-        ext_session_lock_surface_v1_destroy(lock_surface);
-        wl_surface_destroy(surface);
+    do {
+        // Create Wayland surface
+        surface = wl_compositor_create_surface(compositor);
+        if (!surface) {
+            break; 
+        }
+    
+        // Create lock surface for the output
+        lock_surface = ext_session_lock_v1_get_lock_surface(session_lock, surface, output);
+        if (!lock_surface) {
+            break;
+        }
+    
+        ext_session_lock_surface_v1_add_listener(lock_surface, &lock_surface_listener, NULL);
+
+        // Wait for configure event to get the correct size
+        wl_display_roundtrip(display);
+    
+        if (!surface_configured) {
+            fprintf(stderr, "Surface not configured after roundtrip\n");
+            break;
+        }
+    
+        // Create shared memory buffer  
+        buffer = create_buffer(surface_width, surface_height);
+        if (!buffer) {
+            break;
+        }
+    
+        // Clear buffer to transparent black
+        memset(shm_data, 0x00, shm_size);
+    
+        // Attach buffer to surface (required before first commit)
+        wl_surface_attach(surface, buffer, 0, 0);
+        wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
+        wl_surface_commit(surface);
+    
+        // Now wait for the compositor to acknowledge the session lock
+        wl_display_flush(display);
+
+        while (!session_is_locked && session_lock) {
+            if (wl_display_dispatch(display) < 0) {
+                fprintf(stderr, "Failed to dispatch Wayland events while waiting for session lock\n");
+                break;
+            }
+        }
+
+        if (!session_is_locked) {
+            break;
+        }
+    
+        // Create Cairo surface from shared memory 
+        cairo_surface = cairo_image_surface_create_for_data(
+            (unsigned char *)shm_data,
+            CAIRO_FORMAT_ARGB32,
+            surface_width,
+            surface_height,
+            surface_width * 4
+        );
+    
+        if (!cairo_surface) {
+            fprintf(stderr, "Failed to create Cairo surface\n");
+            break;
+        }
+    
+        // Store reference for flushing during commits
+        current_cairo_surface = cairo_surface;
+        success = true;
+    } while (0);
+
+    if (!success) {
+        if (surface != NULL) wl_surface_destroy(surface);
+        if (lock_surface != NULL) ext_session_lock_surface_v1_destroy(lock_surface);
+        if (buffer != NULL) wl_buffer_destroy(buffer);
+
         return NULL;
-    }
-    
-    // Create shared memory buffer  
-    buffer = create_buffer(surface_width, surface_height);
-    if (!buffer) {
-        ext_session_lock_surface_v1_destroy(lock_surface);
-        wl_surface_destroy(surface);
-        return NULL;
-    }
-    
-    // Clear buffer to transparent black
-    memset(shm_data, 0x00, shm_size);
-    
-    // Attach buffer to surface (required before first commit)
-    wl_surface_attach(surface, buffer, 0, 0);
-    wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
-    wl_surface_commit(surface);
-    
-    // Now wait for the session to be locked
-    wl_display_roundtrip(display);
-    
-    if (!session_is_locked) {
-        fprintf(stderr, "Session lock was not established after creating lock surface\n");
-        wl_buffer_destroy(buffer);
-        ext_session_lock_surface_v1_destroy(lock_surface);
-        wl_surface_destroy(surface);
-        return NULL;
-    }
-    
-    // Create Cairo surface from shared memory 
-    cairo_surface_t *cairo_surface = cairo_image_surface_create_for_data(
-        (unsigned char *)shm_data,
-        CAIRO_FORMAT_ARGB32,
-        surface_width,
-        surface_height,
-        surface_width * 4
-    );
-    
-    if (!cairo_surface) {
-        fprintf(stderr, "Failed to create Cairo surface\n");
-        wl_buffer_destroy(buffer);
-        ext_session_lock_surface_v1_destroy(lock_surface);
-        wl_surface_destroy(surface);
-        return NULL;
-    }
-    
-    // Store reference for flushing during commits
-    current_cairo_surface = cairo_surface;
+    } 
     
     return cairo_surface;
 }
@@ -478,10 +488,25 @@ static void wayland_poll_events(void *state)
     if (!display) {
         return;
     }
-    
-    // Process Wayland events (non-blocking)
-    if (wl_display_prepare_read(display) == 0) {
+
+    wl_display_dispatch_pending(display);
+
+    while (wl_display_prepare_read(display) != 0) {
+        wl_display_dispatch_pending(display);
+    }
+
+    wl_display_flush(display);
+
+    struct pollfd pfd = {
+        .fd = wl_display_get_fd(display),
+        .events = POLLIN,
+    };
+
+    int poll_result = poll(&pfd, 1, 0);
+    if (poll_result > 0 && (pfd.revents & POLLIN)) {
         wl_display_read_events(display);
+    } else {
+        wl_display_cancel_read(display);
     }
 
     wl_display_dispatch_pending(display);

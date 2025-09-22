@@ -54,7 +54,7 @@ if wayland_client.found() and wayland_protocols.found() and wayland_scanner.foun
     output: 'ext-session-lock-v1-client-protocol.c',
     command: [wayland_scanner_prog, 'private-code', '@INPUT@', '@OUTPUT@'])
   
-  sources += [session_lock_code]
+  sources += [session_lock_code, session_lock_header]
   
   message('Building with Wayland support')
 else
